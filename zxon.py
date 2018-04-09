@@ -1,34 +1,118 @@
 
 '''
-ÔİÊ±¼ÇÂ¼×Ô¼º¶ÔÉúÎïÉñ¾­ÍøÂçµÄÀí½â£¬²»Ò»¶¨×¼È·£¬ÓĞÊ±¼äÔÙÊµÏÖ
+æš‚æ—¶è®°å½•è‡ªå·±å¯¹ç”Ÿç‰©ç¥ç»ç½‘ç»œçš„ç†è§£ï¼Œä¸ä¸€å®šå‡†ç¡®ï¼Œæœ‰æ—¶é—´å†å®ç°
 '''
 
 '''
-Í»´¥
-neuron: Í»´¥Á¬½ÓµÄÉñ¾­Ôª
-trans: ÉÏÒ»¼¶Éñ¾­Ôªµ½Í»´¥´«ÊäÊ±¼ä 
-weight: È¨ÖØ£¬½éÓÚ£¨-1, 1)Ö®¼ä£¬¾ö¶¨ÉÏÒ»¼¶¶¯×÷µçÎ»µÄÓ°Ïì
-'''
-class Synaptic(object):
-	pass
-
-
-'''
-Éñ¾­Ôª
-synaptic_list: Á¬½ÓÏÂÒ»²ãÉñ¾­ÔªµÄÍ»´¥ÁĞ±í
-threshold: ´¥·¢¶¯×÷µçÎ»µÄãĞÖµ
-potential: timeÊ±¿ÌµÄµçÎ»
-time: ÉÏÒ»´Î½ÓÊÕµ½¶¯×÷µçÎ»µÄÊ±¿Ì
-decay: Ë¥¼õº¯Êı£¬Èçlambda p, t: p - t if p > t else 0£¬Í¨¹ıË¥¼õº¯ÊıÇóµÃµ±Ç°Ê±¼äµÄµçÎ»
-'''
-class Neuron(object):
-	pass
-
-
-'''
-ÔÚÄ³Ò»Ê±¿Ì½ÓÊÕµ½¶¯×÷µçÎ»ºó£¬¼ÆËã¸ÃÉñ¾­Ôª¸ÃÊ±¿ÌµçÎ»£¬Èç¹û³¬³öãĞÖµ£¬Ôò´¥·¢Ò»¸ö¶¯×÷µçÎ»
-Ã¿¸ôÒ»¶ÎÊ±¼ä£¬Éú³ÉĞÂµÄÉñ¾­Ôª
+åœ¨æŸä¸€æ—¶åˆ»æ¥æ”¶åˆ°åŠ¨ä½œç”µä½åï¼Œè®¡ç®—è¯¥ç¥ç»å…ƒè¯¥æ—¶åˆ»ç”µä½ï¼Œå¦‚æœè¶…å‡ºé˜ˆå€¼ï¼Œåˆ™è§¦å‘ä¸€ä¸ªåŠ¨ä½œç”µä½
+æ¯éš”ä¸€æ®µæ—¶é—´ï¼Œç”Ÿæˆæ–°çš„ç¥ç»å…ƒ
 '''
 class Zxon(object):
-	def __init__(self):
-		pass
+    def __init__(self):
+        pass
+
+
+
+
+'''
+Hodgkinâ€“Huxley
+FitzHugh-Nagumo
+Leaky integrate-and-fire
+Nonlinear integrate-and-fire
+SRM
+SRMo
+McCulloch-Pitts
+'''
+import math
+import time
+import numpy as np
+import matplotlib.pyplot as plt
+
+class Synaptic(object):
+    '''
+    neuron: è¿æ¥çš„ç¥ç»å…ƒ
+    weight: æƒé‡(-1, 1)
+    active: æ´»è·ƒåº¦
+    active_time: æœ€åæ¿€æ´»æ—¶é—´
+    '''
+    def __init__(self, neuron=None):
+        self.neuron = neuron
+        self.weight = 0
+        self.active = 0
+        self.active_time = time.time()
+
+class Neuron(object):
+    '''
+    synaptic_list: è¿æ¥ä¸‹ä¸€å±‚ç¥ç»å…ƒçš„çªè§¦åˆ—è¡¨
+    threshold: è§¦å‘åŠ¨ä½œç”µä½çš„é˜ˆå€¼
+    potential: timeæ—¶åˆ»çš„ç”µä½
+    time: ä¸Šä¸€æ¬¡æ¥æ”¶åˆ°åŠ¨ä½œç”µä½çš„æ—¶åˆ»
+    decay: è¡°å‡å‡½æ•°ï¼Œå¦‚lambda p, t: p - t if p > t else 0ï¼Œé€šè¿‡è¡°å‡å‡½æ•°æ±‚å¾—å½“å‰æ—¶é—´çš„ç”µä½
+    '''
+    def __init__(self):
+        self.synaptic = []
+
+    def synaptic_add(self):
+        pass
+
+    def synaptic_del(self):
+        '''
+        æ¸…ç†è¶…å‡ºæ—¶é—´ä¸”æ´»è·ƒåº¦ä½çš„çªè§¦
+        å¦‚æœæ²¡æœ‰æ´»è·ƒçªè§¦ï¼Œæ¸…ç†è¯¥ç¥ç»å…ƒ
+        '''
+        pass
+
+
+class HHSynaptic(Synaptic):
+    pass
+
+
+class HHNeuron(Neuron):
+    '''
+    Hodgkinâ€“Huxley
+    '''
+    g = np.array([36, 120, 0.3])
+    e = np.array([-12, 115, 10.613])
+    x = np.array([0.31, 0.05, 0.58])
+    dt = 0.1
+    def potential(self, v):
+        alpha = np.zeros(3)
+        alpha[0] = (10 - v) / (100 * (math.exp((10 - v) / 10) - 1))
+        alpha[1] = (25 - v) / (10 * (math.exp((25 - v) / 10) - 1))
+        alpha[2] = 0.07 * math.exp(-v / 20)
+        
+        beta = np.zeros(3)
+        beta[0] = 0.125 * math.exp(-v / 80)
+        beta[1] = 4 * math.exp(-v / 18)
+        beta[2] = 1 / (math.exp((30 - v) / 10) + 1)
+        
+        tau = 1 / (alpha + beta)
+ 
+        self.x = (1 - self.dt / tau) * self.x + self.dt * alpha
+        
+        gnmh = np.zeros(3)
+        gnmh[0] = self.g[0] * math.pow(self.x[0], 4)
+        gnmh[1] = self.g[1] * math.pow(self.x[1], 3) * self.x[2]
+        gnmh[2] = self.g[2]
+        
+        I = gnmh * (v - self.e)
+        
+        v += self.dt * (0 - sum(I))
+        return v
+
+    def draw(self):
+        v = 0
+        x = np.arange(-20, 50, self.dt)
+        y = []
+        for i in x:
+            v = self.potential(v)
+            y.append(v)
+
+        plt.plot(x, y)
+        plt.xlabel('Time / ms')
+        plt.ylabel('Voltage / mV')
+        plt.show()
+
+if __name__ == '__main__':
+    hh = HHNeuron()
+    hh.draw()
