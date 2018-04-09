@@ -73,18 +73,26 @@ class HHNeuron(Neuron):
     '''
     g = np.array([36, 120, 0.3])
     e = np.array([-12, 115, 10.613])
-    x = np.array([0.31, 0.05, 0.58])
-    dt = 0.1
-    def potential(self, v):
+    x = np.array([0.31, 0.05, 0.58]) #n, m, h
+    dt = 0.01
+    
+    def get_alpha(self, v):
         alpha = np.zeros(3)
         alpha[0] = (10 - v) / (100 * (math.exp((10 - v) / 10) - 1))
         alpha[1] = (25 - v) / (10 * (math.exp((25 - v) / 10) - 1))
         alpha[2] = 0.07 * math.exp(-v / 20)
-        
+        return alpha
+    
+    def get_beta(self, v):
         beta = np.zeros(3)
         beta[0] = 0.125 * math.exp(-v / 80)
         beta[1] = 4 * math.exp(-v / 18)
         beta[2] = 1 / (math.exp((30 - v) / 10) + 1)
+        return beta
+    
+    def potential(self, v, i_ext=0):
+        alpha = self.get_alpha(v)
+        beta = self.get_beta(v)
         
         tau = 1 / (alpha + beta)
  
@@ -95,9 +103,7 @@ class HHNeuron(Neuron):
         gnmh[1] = self.g[1] * math.pow(self.x[1], 3) * self.x[2]
         gnmh[2] = self.g[2]
         
-        I = gnmh * (v - self.e)
-        
-        v += self.dt * (0 - sum(I))
+        v += self.dt * (i_ext - sum(gnmh * (v - self.e)))
         return v
 
     def draw(self):
@@ -105,7 +111,8 @@ class HHNeuron(Neuron):
         x = np.arange(-20, 50, self.dt)
         y = []
         for i in x:
-            v = self.potential(v)
+            i_ext = 2
+            v = self.potential(v, i_ext)
             y.append(v)
 
         plt.plot(x, y)
@@ -113,6 +120,29 @@ class HHNeuron(Neuron):
         plt.ylabel('Voltage / mV')
         plt.show()
 
+
+#import brian2
+from brian2 import NeuronGroup, StateMonitor, SpikeMonitor
+from brian2 import start_scope, run
+from brian2 import ms
+
 if __name__ == '__main__':
-    hh = HHNeuron()
-    hh.draw()
+    #hh = HHNeuron()
+    #hh.draw()
+    start_scope()
+
+    tau = 10 * ms
+    eqs = '''
+    dv/dt = (1-v)/tau : 1
+    '''
+    
+    G = NeuronGroup(1, eqs, threshold='v > 0.8', reset='v = 0.2', method='exact')
+    M = StateMonitor(G, 'v', record=0)
+    spikemon = SpikeMonitor(G)
+
+    run(100 * ms)
+
+    print(spikemon.t[:])
+    plt.plot(M.t / ms, M.v[0])
+    plt.xlabel('Time (ms)')
+    plt.ylabel('v')
