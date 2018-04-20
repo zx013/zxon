@@ -6,21 +6,6 @@
     "configurations": [
 
         {
-            "name": "PySpark",
-            "type": "python",
-            "request": "launch",
-            "osx": {
-                "pythonPath": "${env:SPARK_HOME}/bin/spark-submit"
-            },
-            "windows": {
-                "pythonPath": "${env:SPARK_HOME}/bin/spark-submit.cmd"
-            },
-            "linux": {
-                "pythonPath": "${env:SPARK_HOME}/bin/spark-submit"
-            },
-            "program": "${file}"
-        },
-        {
             "name": "Python: Current File",
             "type": "python",
             "request": "launch",
@@ -51,62 +36,10 @@
             "console": "externalTerminal"
         },
         {
-            "name": "Python: Django",
-            "type": "python",
-            "request": "launch",
-            "program": "${workspaceFolder}/manage.py",
-            "args": [
-                "runserver",
-                "--noreload",
-                "--nothreading"
-            ],
-            "debugOptions": [
-                "RedirectOutput",
-                "Django"
-            ]
-        },
-        {
-            "name": "Python: Flask (0.11.x or later)",
-            "type": "python",
-            "request": "launch",
-            "module": "flask",
-            "env": {
-                "FLASK_APP": "${workspaceFolder}/app.py"
-            },
-            "args": [
-                "run",
-                "--no-debugger",
-                "--no-reload"
-            ]
-        },
-        {
             "name": "Python: Module",
             "type": "python",
             "request": "launch",
             "module": "module.name"
-        },
-        {
-            "name": "Python: Pyramid",
-            "type": "python",
-            "request": "launch",
-            "args": [
-                "${workspaceFolder}/development.ini"
-            ],
-            "debugOptions": [
-                "RedirectOutput",
-                "Pyramid"
-            ]
-        },
-        {
-            "name": "Python: Watson",
-            "type": "python",
-            "request": "launch",
-            "program": "${workspaceFolder}/console.py",
-            "args": [
-                "dev",
-                "runserver",
-                "--noreload=True"
-            ]
         },
         {
             "name": "Python: All debug Options",
