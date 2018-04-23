@@ -234,10 +234,72 @@ def synapse_test2():
     
     visualise_connetivity(S)
 
+def synapse_test3():
+    start_scope()
+    
+    N = 30
+    neuron_spacing = 50*umetre
+    width = N/4.0*neuron_spacing
+    
+    G = NeuronGroup(N, 'x :metre')
+    G.x = 'i*neuron_spacing'
+    
+    S = Synapses(G, G, 'w : 1')
+    S.connect(condition='i != j')
+    #保证单位一致
+    S.w = 'exp(-(x_pre - x_post)**2/(2*width**2))'
+    
+    plt.scatter(S.x_pre/um, S.x_post/um, S.w*20)
+    plt.xlabel('Source neuron position (um)')
+    plt.ylabel('Target neuron position (um)')
+
+def synapse_test4():
+    start_scope()
+    
+    taupre = taupost = 20*ms
+    wmax = 0.01
+    Apre = 0.01
+    Apost = -Apre*taupre/taupost*1.05
+    
+    #event-driven，事件驱动，只在spike触发时计算
+    #clock-driven，时间驱动，在每个时间片计算
+    G = NeuronGroup(2, 'v : 1', threshold='t > (1 + i)*10*ms', refractory=100*ms)
+    S = Synapses(G, G,
+                 '''
+                 w : 1
+                 dapre/dt = -apre/taupre : 1 (clock-driven)
+                 dapost/dt = -apost/taupost : 1 (clock-driven)
+                 ''',
+                 on_pre='''
+                 v_post += 0.005
+                 apre += Apre
+                 w += apost
+                 ''',
+                 on_post='''
+                 apost += Apost
+                 w += apre
+                 ''')
+    S.connect(i=0, j=1)
+    M = StateMonitor(S, ['w', 'apre', 'apost'], record=True)
+    M1 = StateMonitor(G, ['v'], record=True)
+    
+    run(30*ms)
+    
+    plt.figure(figsize=(4, 8))
+    plt.subplot(211)
+    plt.plot(M.t/ms, M.apre[0], label='apre')
+    plt.plot(M.t/ms, M.apost[0], label='apost')
+    plt.legend()
+    plt.subplot(212)
+    plt.plot(M.t/ms, M.w[0], label='w')
+    plt.plot(M1.t/ms, M1.v[1], label='v')
+    plt.legend(loc='best')
+    plt.xlabel('Time (ms)')
+
 if __name__ == '__main__':
     #hh = HHNeuron()
     #hh.draw()
     
     #neuron_test()
     
-    synapse_test2()
+    synapse_test4()
