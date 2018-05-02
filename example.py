@@ -23,12 +23,12 @@ class HodgkinHuxley(NeuronGroup):
     neuron_model = '''
     area = 20000*umetre**2 : metre**2
     Cm = 1*ufarad*cm**-2*area : farad
-    gl = 5e-5*siemens*cm**-2*area : siemens
-    El = -65*mV : volt
-    EK = -90*mV : volt
     ENa = 50*mV : volt
+    EK = -90*mV : volt
+    El = -65*mV : volt
     g_na = 100*msiemens*cm**-2*area : siemens
     g_kd = 30*msiemens*cm**-2*area : siemens
+    gl = 5e-5*siemens*cm**-2*area : siemens
     VT = -63*mV : volt
     dv/dt = (gl*(El-v) - g_na*(m*m*m)*h*(v-ENa) - g_kd*(n*n*n*n)*(v-EK) + I)/Cm : volt
     dm/dt = 0.32*(mV**-1)*(13.*mV-v+VT)/(exp((13.*mV-v+VT)/(4.*mV))-1.)/ms*(1-m)-0.28*(mV**-1)*(v-VT-40.*mV)/
@@ -37,7 +37,7 @@ class HodgkinHuxley(NeuronGroup):
     dh/dt = 0.128*exp((17.*mV-v+VT)/(18.*mV))/ms*(1.-h)-4./(1+exp((40.*mV-v+VT)/(5.*mV)))/ms*h : 1
     I : amp
     '''
-    neuron_threshold = 'v > -40*mV'
+    neuron_threshold = 'v > 0*mV'
     neuron_reset = ''
     
     def __init__(self, num=1, *args, **kwargs):
@@ -60,7 +60,7 @@ class LeakyIF(NeuronGroup):
     def __init__(self, num=1, *args, **kwargs):
         super(LeakyIF, self).__init__(num, self.neuron_model, threshold=self.neuron_threshold, reset=self.neuron_reset, refractory=self.neuron_refractory, method='exponential_euler')
         self.v = -70*mV
-        self.I = 5*mA
+        self.I = 2*mA
 
 class Izhikevich(NeuronGroup):
     __type__ = 'neuron'
@@ -85,14 +85,14 @@ class Izhikevich(NeuronGroup):
     (1,       0.2,    -60,    -21,  0), #DAP
     (0.02,    1,      -55,    4,    0), #accomodation
     (-0.02,   -1,     -60,    8,    80), #inhibition-induced spiking
-    (-0.026,  -1,     -45,    0,    80)) #inhibition-induced bursting
+    (-0.026,  -1,     -45,    -8,    80)) #inhibition-induced bursting
 
     neuron_model = '''
     a : 1
     b : 1
     c : 1
     d : 1
-    dv/dt = (0.04*v*v/mV + 5*v + 140*mV - u + I/amp*mV)/ms : volt
+    dv/dt = (0.04*v*v/mV + 5*v + 140*mV - u + I/amp*mV)/ms : volt (unless refractory)
     du/dt = a*(b*v - u)/ms : volt
     I : amp
     '''
@@ -103,11 +103,12 @@ class Izhikevich(NeuronGroup):
     '''
     
     def __init__(self, num=1, *args, **kwargs):
-        super(Izhikevich, self).__init__(num, self.neuron_model, threshold=self.neuron_threshold, reset=self.neuron_reset, method='euler')
+        super(Izhikevich, self).__init__(num, self.neuron_model, threshold=self.neuron_threshold, reset=self.neuron_reset, method='euler', refractory=3*ms)
         self.v = -70*mV
         self.u = -20*mV
-        self.a, self.b, self.c, self.d, _ = self.params[0]
-        self.I = 0
+        self.a, self.b, self.c, self.d, I = self.params[19]
+        self.I = I*amp
+        #self.I = 0
 
 class STDP(Synapses):
     __type__ = 'synapse'
@@ -165,7 +166,7 @@ class Monitor(StateMonitor):
         if hasattr(node, '__type__'):
             if node.__type__ == 'neuron':
                 self.type = 'neuron'
-                super(Monitor, self).__init__(node, 'v', record=record, *args, **kwargs)
+                super(Monitor, self).__init__(node, ['v', 'u'], record=record, *args, **kwargs)
             elif node.__type__ == 'synapse':
                 self.type = 'synapse'
                 super(Monitor, self).__init__(node, 'w', record=record, *args, **kwargs)
@@ -194,8 +195,8 @@ if __name__ == '__main__':
     #stdp = STDP(poisson, izh)
     #stdp.connect()
 
-    hhm = Monitor(hh)
-    lifm = Monitor(lif)
+    #hhm = Monitor(hh)
+    #lifm = Monitor(lif)
     izhm = Monitor(izh)
     #synapse_monitor = Monitor(stdp)
 
@@ -210,9 +211,10 @@ if __name__ == '__main__':
     #synapse_monitor.show(0)
     #synapse_monitor.show(1)
 
-    plt.plot(hhm.t/ms, hhm.v[0]/mV, label='HH')
+    #plt.plot(hhm.t/ms, hhm.v[0]/mV, label='HH')
     #plt.plot(lifm.t/ms, lifm.v[0]/mV, label='LIF')
-    #plt.plot(izhm.t/ms, izhm.v[0]/mV, label='Izh')
+    plt.plot(izhm.t/ms, izhm.v[0]/mV, label='Izh-v')
+    plt.plot(izhm.t/ms, izhm.u[0]/mV, label='Izh-u')
     plt.legend()
     plt.xlabel('t (ms)')
     plt.ylabel('v (mV)')

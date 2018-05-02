@@ -333,9 +333,9 @@ def synapse_test5():
     axhline(0, ls='-', c='k');
 
 if __name__ == '__main__':
-    #hh = HHNeuron()
-    #hh.draw()
+    hh = HHNeuron()
+    hh.draw()
     
     #neuron_test()
     
-    synapse_test5()
+    #synapse_test5()
