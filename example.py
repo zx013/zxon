@@ -9,7 +9,7 @@ import os
 import brian2.numpy_ as np
 import matplotlib.pyplot as plt
 from brian2 import PoissonGroup, NeuronGroup, Synapses, StateMonitor
-from brian2 import Hz, ms, mV, mA, nA, prefs, start_scope, run
+from brian2 import Hz, ms, mV, mA, nA, amp, prefs, start_scope, run
 
 prefs.codegen.target = 'numpy'
 
@@ -85,7 +85,7 @@ class Izhikevich(NeuronGroup):
     (1,       0.2,    -60,    -21,  0), #DAP
     (0.02,    1,      -55,    4,    0), #accomodation
     (-0.02,   -1,     -60,    8,    80), #inhibition-induced spiking
-    (-0.026,  -1,     -45,    -8,    80)) #inhibition-induced bursting
+    (-0.026,  -1,     -45,    -8,    80)) #inhibition-induced bursting, d(0 -> -8)
 
     neuron_model = '''
     a : 1
@@ -103,30 +103,29 @@ class Izhikevich(NeuronGroup):
     '''
     
     def __init__(self, num=1, *args, **kwargs):
-        super(Izhikevich, self).__init__(num, self.neuron_model, threshold=self.neuron_threshold, reset=self.neuron_reset, method='euler', refractory=3*ms)
+        super(Izhikevich, self).__init__(num, self.neuron_model, threshold=self.neuron_threshold, reset=self.neuron_reset, method='euler')
         self.v = -70*mV
         self.u = -20*mV
-        self.a, self.b, self.c, self.d, I = self.params[19]
-        self.I = I*amp
-        #self.I = 0
+        self.a, self.b, self.c, self.d, _ = self.params[0]
+        self.I = 0*amp
 
 class STDP(Synapses):
     __type__ = 'synapse'
 
     synapse_model = '''
     w : 1
-    wmax : 1
-    taupre : second
-    taupost : second
-    apre : 1
-    apost : 1
-    ratepre : 1
-    ratepost : 1
+    wmax = 10 : 1
+    taupre = 20*ms : second
+    taupost = taupre : second
+    apre = 0.01 * wmax : 1
+    apost = -apre * taupre / taupost * 1.05 : 1
+    ratepre = 0.01 : 1
+    ratepost = 0.01 : 1
     dpre/dt = -pre/taupre : 1 (event-driven)
     dpost/dt = -post/taupost : 1 (event-driven)
     '''
     synapse_pre='''
-    v_post += w
+    v_post += w*mV
     pre += apre
     w = clip(w + ratepost*post, 0, wmax)
     '''
@@ -142,17 +141,11 @@ class STDP(Synapses):
 
     def connect(self, *args, **kwargs):
         super(STDP, self).connect(*args, **kwargs)
-        self.wmax = 1
-        self.taupre = self.taupost = 20*ms
-        self.apre = 0.01 * self.wmax
-        self.apost = -self.apre * self.taupre / self.taupost * 1.05
-        self.ratepre = 0.01
-        self.ratepost = 1
 
-        if False: #os.path.isfile(self.cache):
+        if os.path.isfile(self.cache):
             self.w = np.load(self.cache)
         else:
-            self.w = '5' #'rand()*wmax'
+            self.w = 'rand()*wmax'
 
     def save(self):
         np.save(self.cache, self.w)
@@ -166,7 +159,7 @@ class Monitor(StateMonitor):
         if hasattr(node, '__type__'):
             if node.__type__ == 'neuron':
                 self.type = 'neuron'
-                super(Monitor, self).__init__(node, ['v', 'u'], record=record, *args, **kwargs)
+                super(Monitor, self).__init__(node, 'v', record=record, *args, **kwargs)
             elif node.__type__ == 'synapse':
                 self.type = 'synapse'
                 super(Monitor, self).__init__(node, 'w', record=record, *args, **kwargs)
@@ -175,7 +168,7 @@ class Monitor(StateMonitor):
     
     def show(self, num=0):
         if self.type == 'neuron':
-            plt.plot(self.t/ms, self.v[num]/mV, label='v')
+            plt.plot(self.t/ms, self.v[num]/mV, label='v%d' % num)
             plt.legend()
             plt.xlabel('t (ms)')
             plt.ylabel('v (mV)')
@@ -188,34 +181,22 @@ class Monitor(StateMonitor):
 
 if __name__ == '__main__':
     start_scope()
-    #poisson = Poisson(0)
-    hh = HodgkinHuxley()
-    lif = LeakyIF()
-    izh = Izhikevich()
-    #stdp = STDP(poisson, izh)
-    #stdp.connect()
+    poisson = Poisson(15, 100)
+    izh = Izhikevich(100)
+    stdp = STDP(poisson, izh)
+    stdp.connect()
 
-    #hhm = Monitor(hh)
-    #lifm = Monitor(lif)
-    izhm = Monitor(izh)
-    #synapse_monitor = Monitor(stdp)
+    neuron_monitor = Monitor(izh)
+    synapse_monitor = Monitor(stdp)
 
     run(100*ms, report='text')
-    #stdp.save()
+    stdp.save()
 
-    #plt.figure(figsize=(4, 8))
-    #plt.subplot(211)
-    #neuron_monitor.show()
+    plt.figure(figsize=(4, 8))
+    plt.subplot(211)
+    neuron_monitor.show()
 
-    #plt.subplot(212)
-    #synapse_monitor.show(0)
-    #synapse_monitor.show(1)
+    plt.subplot(212)
+    synapse_monitor.show()
 
-    #plt.plot(hhm.t/ms, hhm.v[0]/mV, label='HH')
-    #plt.plot(lifm.t/ms, lifm.v[0]/mV, label='LIF')
-    plt.plot(izhm.t/ms, izhm.v[0]/mV, label='Izh-v')
-    plt.plot(izhm.t/ms, izhm.u[0]/mV, label='Izh-u')
-    plt.legend()
-    plt.xlabel('t (ms)')
-    plt.ylabel('v (mV)')
     plt.show()
