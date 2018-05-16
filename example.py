@@ -114,7 +114,7 @@ class STDP(Synapses):
 
     synapse_model = '''
     w : 1
-    wmax = 10 : 1
+    wmax = 1 : 1
     taupre = 20*ms : second
     taupost = taupre : second
     apre = 0.01 * wmax : 1
@@ -141,6 +141,49 @@ class STDP(Synapses):
 
     def connect(self, *args, **kwargs):
         super(STDP, self).connect(*args, **kwargs)
+
+        if os.path.isfile(self.cache):
+            self.w = np.load(self.cache)
+        else:
+            self.w = 'rand()*wmax'
+
+    def save(self):
+        np.save(self.cache, self.w)
+
+    def load(self):
+        self.w = np.load(self.cache)
+
+class TripSTDP(Synapses):
+    __type__ = 'synapse'
+
+    #A3n = 0时为最小化模型
+    synapse_model = '''
+    w : 1
+    rx : 1
+    ry : 1
+    A2p = 0 : 1
+    A2n = -6.5e-3 : 1
+    A3p = 7.1e-3 : 1
+    A3n = 0 : 1
+    tp = 16.8 : 1
+    tn = 33.7 : 1
+    tx = 0 : 1
+    ty = 114 : 1
+    dw/dt = rx*ry*(- A2n*tn - A3n*tn*tx*rx + A2p*tp + A3p*tp*ty*ry)
+    dw/dt = rx*ry*(-0.21905 + 13.59792*ry)
+    '''
+    synapse_pre='''
+    '''
+    synapse_post='''
+    '''
+    
+    cache = 'stdp.npy'
+
+    def __init__(self, source_neuron, target_neuron, *args, **kwargs):
+        super(TripSTDP, self).__init__(source_neuron, target_neuron, self.synapse_model, on_pre=self.synapse_pre, on_post=self.synapse_post)
+
+    def connect(self, *args, **kwargs):
+        super(TripSTDP, self).connect(*args, **kwargs)
 
         if os.path.isfile(self.cache):
             self.w = np.load(self.cache)
@@ -181,7 +224,7 @@ class Monitor(StateMonitor):
 
 if __name__ == '__main__':
     start_scope()
-    poisson = Poisson(15, 100)
+    poisson = Poisson(100, 100)
     izh = Izhikevich(100)
     stdp = STDP(poisson, izh)
     stdp.connect()
