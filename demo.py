@@ -58,7 +58,7 @@ class Izhikevich(NeuronGroup):
     def __init__(self, num=1, inhibition=False, *args, **kwargs):
         super(Izhikevich, self).__init__(num, self.neuron_model, threshold=self.neuron_threshold, reset=self.neuron_reset, method='euler')
         self.v = -70*mV
-        self.u = -20*mV
+        self.u = 20*mV
         self.a, self.b, self.c, self.d, _ = self.params[18 if inhibition else 0]
 
 class STDP(Synapses):
@@ -162,14 +162,20 @@ if __name__ == '__main__':
     
     stdp1 = STDP(poisson, izh1)
     stdp2 = STDP(izh1, izh2)
+    stdp3 = STDP(izh2, izh1)
     stdp1.connect()
     stdp2.connect(j='i')
+    stdp3.connect(condition='i!=j')
+    
+    s1 = SpikeMonitor(izh1)
+    s2 = SpikeMonitor(izh2)
 
-    net = Network([poisson, izh1, izh2, stdp1, stdp2])
+    net = Network([poisson, izh1, izh2, stdp1, stdp2, s1, s2])
 
     for i in range(len(data['x'])):
-        poisson.rates = functools.reduce(lambda x, y: np.append(x, y), data['x'][i])*Hz
+        poisson.rates = functools.reduce(lambda x, y: np.append(x, y), data['x'][i])/8*2*Hz
         net.run(350*ms, report='text')
         poisson.rates = 0*Hz
         net.run(150*ms, report='text')
+        break
         #learn_data(data['x'][i], data['y'][i], rows, cols)

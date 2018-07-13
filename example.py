@@ -17,56 +17,14 @@ class Poisson(PoissonGroup):
     def __init__(self, h, num=1):
         super(Poisson, self).__init__(num, h*Hz)
 
-class HodgkinHuxley(NeuronGroup):
-    __type__ = 'neuron'
-    
-    neuron_model = '''
-    area = 20000*umetre**2 : metre**2
-    Cm = 1*ufarad*cm**-2*area : farad
-    ENa = 50*mV : volt
-    EK = -90*mV : volt
-    El = -65*mV : volt
-    g_na = 100*msiemens*cm**-2*area : siemens
-    g_kd = 30*msiemens*cm**-2*area : siemens
-    gl = 5e-5*siemens*cm**-2*area : siemens
-    VT = -63*mV : volt
-    dv/dt = (gl*(El-v) - g_na*(m*m*m)*h*(v-ENa) - g_kd*(n*n*n*n)*(v-EK) + I)/Cm : volt
-    dm/dt = 0.32*(mV**-1)*(13.*mV-v+VT)/(exp((13.*mV-v+VT)/(4.*mV))-1.)/ms*(1-m)-0.28*(mV**-1)*(v-VT-40.*mV)/
-(exp((v-VT-40.*mV)/(5.*mV))-1.)/ms*m : 1
-    dn/dt = 0.032*(mV**-1)*(15.*mV-v+VT)/(exp((15.*mV-v+VT)/(5.*mV))-1.)/ms*(1.-n)-.5*exp((10.*mV-v+VT)/(40.*mV))/ms*n : 1
-    dh/dt = 0.128*exp((17.*mV-v+VT)/(18.*mV))/ms*(1.-h)-4./(1+exp((40.*mV-v+VT)/(5.*mV)))/ms*h : 1
-    I : amp
-    '''
-    neuron_threshold = 'v > 0*mV'
-    neuron_reset = ''
-    
-    def __init__(self, num=1, *args, **kwargs):
-        super(HodgkinHuxley, self).__init__(num, self.neuron_model, threshold=self.neuron_threshold, reset=self.neuron_reset, method='exponential_euler')
-        self.v = -70*mV
-        self.I = 0.1*nA
-
-class LeakyIF(NeuronGroup):
-    __type__ = 'neuron'
-    
-    neuron_model = '''
-    tau = 10*ms : second
-    dv/dt = -v/tau + I*ohm/ms : volt (unless refractory)
-    I : amp
-    '''
-    neuron_threshold = 'v > 10*mV'
-    neuron_reset = 'v = -70*mV'
-    neuron_refractory = 10*ms
-    
-    def __init__(self, num=1, *args, **kwargs):
-        super(LeakyIF, self).__init__(num, self.neuron_model, threshold=self.neuron_threshold, reset=self.neuron_reset, refractory=self.neuron_refractory, method='exponential_euler')
-        self.v = -70*mV
-        self.I = 2*mA
-
 class Izhikevich(NeuronGroup):
     __type__ = 'neuron'
 
     params = \
-    ((0.02,    0.2,    -65,    6,    14), #tonic spiking
+    ((0.02,   0.2,    -65,    8,    0), #Regular Spiking
+    (0.02,    0.2,    -50,    2,    0), #Chattering
+    (0.02,    0.25,   -65,    2,    0), #Low-Threshod Spiking
+    (0.02,    0.2,    -65,    6,    14), #tonic spiking
     (0.02,    0.25,   -65,    6,    0.5), #phasic spiking
     (0.02,    0.2,    -50,    2,    15), #tonic bursting
     (0.02,    0.25,   -55,    0.05, 0.6), #phasic bursting
@@ -93,8 +51,9 @@ class Izhikevich(NeuronGroup):
     c : 1
     d : 1
     dv/dt = (0.04*v*v/mV + 5*v + 140*mV - u + I/amp*mV)/ms : volt (unless refractory)
-    du/dt = a*(b*v - u)/ms : volt
-    I : amp
+    du/dt = a*(b*v - u)/ms : volt (unless refractory)
+    dI/dt = (g - I) / (5*ms) : amp
+    dg/dt = -g / (5*ms) : amp
     '''
     neuron_threshold = 'v > 30*mV' #threshold不能换行
     neuron_reset = '''
@@ -102,36 +61,41 @@ class Izhikevich(NeuronGroup):
     u += d*mV
     '''
     
-    def __init__(self, num=1, *args, **kwargs):
+    def __init__(self, num=1, spike_type='RS', *args, **kwargs):
         super(Izhikevich, self).__init__(num, self.neuron_model, threshold=self.neuron_threshold, reset=self.neuron_reset, method='euler')
         self.v = -70*mV
         self.u = -20*mV
-        self.a, self.b, self.c, self.d, _ = self.params[0]
-        self.I = 0*amp
+        if spike_type == 'RS':
+            spike_choice = 0
+        elif spike_type == 'CH':
+            spike_choice = 1
+        elif spike_type == 'LTS':
+            spike_choice = 2
+        else:
+            spike_choice = 0
+        self.a, self.b, self.c, self.d, _ = self.params[spike_choice]
 
 class STDP(Synapses):
     __type__ = 'synapse'
 
     synapse_model = '''
     w : 1
-    wmax = 1 : 1
-    taupre = 20*ms : second
-    taupost = taupre : second
-    apre = 0.01 * wmax : 1
-    apost = -apre * taupre / taupost * 1.05 : 1
-    ratepre = 0.01 : 1
-    ratepost = 0.01 : 1
-    dpre/dt = -pre/taupre : 1 (event-driven)
-    dpost/dt = -post/taupost : 1 (event-driven)
+    tpre : second
+    tpost : second
+    type : 1
     '''
+    #w += 1.11*exp(-((tpost - tpre)/ms + 2)**2/1.11**2) - 0.11
     synapse_pre='''
-    v_post += w*mV
-    pre += apre
-    w = clip(w + ratepost*post, 0, wmax)
+    tpre = t
+    w = type*(1.21*exp(-((tpost - tpre)/ms + 12.7)**2/13.61**2) - 0.21)
+    g_post += w*amp
+    type = 0
     '''
     synapse_post='''
-    post += apost
-    w = clip(w + ratepre*pre, 0, wmax)
+    tpost = t
+    w = (1 - type)*(1.21*exp(-((tpost - tpre)/ms + 12.7)**2/13.61**2) - 0.21)
+    g_post += w*amp
+    type = 1
     '''
     
     cache = 'stdp.npy'
@@ -142,53 +106,10 @@ class STDP(Synapses):
     def connect(self, *args, **kwargs):
         super(STDP, self).connect(*args, **kwargs)
 
-        if os.path.isfile(self.cache):
-            self.w = np.load(self.cache)
-        else:
-            self.w = 'rand()*wmax'
-
-    def save(self):
-        np.save(self.cache, self.w)
-
-    def load(self):
-        self.w = np.load(self.cache)
-
-class TripSTDP(Synapses):
-    __type__ = 'synapse'
-
-    #A3n = 0时为最小化模型
-    synapse_model = '''
-    w : 1
-    rx : 1
-    ry : 1
-    A2p = 0 : 1
-    A2n = -6.5e-3 : 1
-    A3p = 7.1e-3 : 1
-    A3n = 0 : 1
-    tp = 16.8 : 1
-    tn = 33.7 : 1
-    tx = 0 : 1
-    ty = 114 : 1
-    dw/dt = rx*ry*(- A2n*tn - A3n*tn*tx*rx + A2p*tp + A3p*tp*ty*ry)
-    dw/dt = rx*ry*(-0.21905 + 13.59792*ry)
-    '''
-    synapse_pre='''
-    '''
-    synapse_post='''
-    '''
-    
-    cache = 'stdp.npy'
-
-    def __init__(self, source_neuron, target_neuron, *args, **kwargs):
-        super(TripSTDP, self).__init__(source_neuron, target_neuron, self.synapse_model, on_pre=self.synapse_pre, on_post=self.synapse_post)
-
-    def connect(self, *args, **kwargs):
-        super(TripSTDP, self).connect(*args, **kwargs)
-
-        if os.path.isfile(self.cache):
-            self.w = np.load(self.cache)
-        else:
-            self.w = 'rand()*wmax'
+        #if os.path.isfile(self.cache):
+        #    self.w = np.load(self.cache)
+        #else:
+        #    self.w = 'rand()*wmax'
 
     def save(self):
         np.save(self.cache, self.w)
@@ -224,7 +145,8 @@ class Monitor(StateMonitor):
 
 if __name__ == '__main__':
     start_scope()
-    poisson = Poisson(100, 100)
+
+    poisson = Poisson(50, 200)
     izh = Izhikevich(100)
     stdp = STDP(poisson, izh)
     stdp.connect()
@@ -233,7 +155,6 @@ if __name__ == '__main__':
     synapse_monitor = Monitor(stdp)
 
     run(100*ms, report='text')
-    stdp.save()
 
     plt.figure(figsize=(4, 8))
     plt.subplot(211)
@@ -243,3 +164,4 @@ if __name__ == '__main__':
     synapse_monitor.show()
 
     plt.show()
+    
