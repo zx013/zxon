@@ -50,20 +50,11 @@ class Izhikevich(NeuronGroup):
     b : 1
     c : 1
     d : 1
-    dv/dt = (0.04*v*v/mV + 5*v + 140*mV - u + I/amp*mV)/ms : volt (unless refractory)
+    dv/dt = (0.04*v*v/mV + 5*v + 140*mV - u + I/amp*mV + I_ext/amp*mV)/ms : volt (unless refractory)
     du/dt = a*(b*v - u)/ms : volt (unless refractory)
     dI/dt = (g - I) / (5*ms) : amp
     dg/dt = -g / (5*ms) : amp
-    dp : 1
-    '''
-    neuron_input = '''
-    a : 1
-    b : 1
-    c : 1
-    d : 1
-    dv/dt = (0.04*v*v/mV + 5*v + 140*mV - u + I/amp*mV)/ms : volt (unless refractory)
-    du/dt = a*(b*v - u)/ms : volt (unless refractory)
-    I : amp
+    I_ext : amp
     dp : 1
     '''
     neuron_threshold = 'v > 30*mV' #threshold不能换行
@@ -72,12 +63,8 @@ class Izhikevich(NeuronGroup):
     u += d*mV
     '''
 
-    def __init__(self, num=1, spike_type='RS', isinput=False, *args, **kwargs):
-        if isinput:
-            model = self.neuron_input
-        else:
-            model = self.neuron_model
-        super(Izhikevich, self).__init__(num, model, threshold=self.neuron_threshold, reset=self.neuron_reset, refractory=2*ms, method='euler')
+    def __init__(self, spike_type='RS', num=1, *args, **kwargs):
+        super(Izhikevich, self).__init__(num, self.neuron_model, threshold=self.neuron_threshold, reset=self.neuron_reset, refractory=2*ms, method='euler')
         self.v = -70*mV
         self.u = -14*mV
         self.dp = 1 #是否是抑制神经元，1/-1
@@ -103,7 +90,7 @@ class STDP(Synapses):
     tpost : second
     type : 1
     depress : 1
-    speed = 0.5 : 1
+    rate = 0.5 : 1
     '''
     #1.11*exp(-((tpost - tpre)/ms + 2)**2/1.11**2) - 0.11
     #1.21*exp(-((tpost - tpre)/ms + 12.7)**2/13.61**2) - 0.21
@@ -111,13 +98,13 @@ class STDP(Synapses):
     g_post += depress*w*amp
     tpre = t
     deltaw = type*(1.21*exp(-((tpost - tpre)/ms + 12.7)**2/13.61**2) - 0.21)
-    w = clip(w + speed*deltaw, 0, 10)
+    w = clip(w + rate*deltaw, 0, 10)
     type = 0
     '''
     synapse_post='''
     tpost = t
     deltaw = (1 - type)*(1.21*exp(-((tpost - tpre)/ms + 12.7)**2/13.61**2) - 0.21)
-    w = clip(w + speed*deltaw, 0, 10)
+    w = clip(w + rate*deltaw, 0, 10)
     type = 1
     '''
 
@@ -161,28 +148,28 @@ class Monitor(StateMonitor):
 
 class SensingCircuit:
     def __init__(self, network):
-        self.CH = Izhikevich(1, 'CH', True)
+        self.CH = Izhikevich('CH')
         network.add(self.CH)
 
 class PunishmentCircuit:
     def __init__(self, network):
-        self.CH = Izhikevich(1, 'CH', True)
+        self.CH = Izhikevich('CH')
         network.add(self.CH)
 
 class ControlCircuit:
     def __init__(self, network):
-        self.RS_L = Izhikevich(1, 'RS')
-        self.RS_R = Izhikevich(1, 'RS')
+        self.RS_L = Izhikevich('RS')
+        self.RS_R = Izhikevich('RS')
         network.add([self.RS_L, self.RS_R])
 
 class DecisionCircuit:
     def __init__(self, network):
-        self.CH_L = Izhikevich(1, 'CH')
-        self.CH_R = Izhikevich(1, 'CH')
-        self.LTS_L = Izhikevich(1, 'LTS')
-        self.LTS_R = Izhikevich(1, 'LTS')
-        self.RS = Izhikevich(1, 'RS')
-        self.LTS = Izhikevich(1, 'LTS')
+        self.CH_L = Izhikevich('CH')
+        self.CH_R = Izhikevich('CH')
+        self.LTS_L = Izhikevich('LTS')
+        self.LTS_R = Izhikevich('LTS')
+        self.RS = Izhikevich('RS')
+        self.LTS = Izhikevich('LTS')
         network.add([self.CH_L, self.CH_R, self.LTS_L, self.LTS_R, self.RS, self.LTS])
 
         self.stdp1 = STDP(self.LTS, self.RS, j='i')
@@ -201,10 +188,44 @@ class Fly:
     def __init__(self):
         pass
 
+
+'''
+突触权值改变转换为微分方程形式
+'''
+class NeuronTest(NeuronGroup):
+    __type__ = 'neuron'
+
+    neuron_model = '''
+    w = x1*(1.2*x2 -0.2) : 1
+    dx1/dt = (x1*y1)/second : 1
+    dx2/dt = (x2*y2)/second : 1
+    dy1/dt = -(2/4.5**2)/ms : 1
+    dy2/dt = -(2/0.8**2)/ms : 1
+    '''
+
+    def __init__(self, *args, **kwargs):
+        super(NeuronTest, self).__init__(1, self.neuron_model, threshold='w>100', reset='', method='euler')
+        self.x1 = 1
+        self.x2 = 1
+
+
 defaultclock.dt = 500.*us
 if __name__ == '__main__':
     start_scope()
+    
+    nt = NeuronTest()
+    
+    n = StateMonitor(nt, 'w', record=True)
+    
+    run(500*ms)
 
+    plt.plot(n.t/ms, n.w[0], label='w')
+    plt.legend()
+    plt.xlabel('t (ms)')
+    plt.ylabel('w')
+    plt.show()
+    
+    '''
     network = Network()
 
     sc = SensingCircuit(network)
@@ -237,14 +258,14 @@ if __name__ == '__main__':
     #n = [n6, n7, n5]
     network.add(n)
 
-    sc.CH.I[0] = 10*amp
-    pc.CH.I = 0*amp
+    sc.CH.I_ext[0] = 10*amp
+    pc.CH.I_ext = 0*amp
     network.run(500*ms, report='text')
 
-    pc.CH.I = 10*amp
+    pc.CH.I_ext = 10*amp
     network.run(500*ms, report='text')
 
-    pc.CH.I = 0*amp
+    pc.CH.I_ext = 0*amp
     network.run(500*ms, report='text')
 
     plt.figure(figsize=(12, 2 * len(n)))
@@ -254,3 +275,4 @@ if __name__ == '__main__':
         n[i].show()
 
     plt.show()
+    '''
