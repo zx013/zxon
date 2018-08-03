@@ -85,38 +85,36 @@ class STDP(Synapses):
 
     synapse_model = '''
     w : 1
+    w_max = 1 : 1
     deltaw : 1
-    tpre : second
-    tpost : second
-    type : 1
     depress : 1
-    rate = 0.5 : 1
+    rate = 0.01 : 1
+    type : 1
     '''
     #1.11*exp(-((tpost - tpre)/ms + 2)**2/1.11**2) - 0.11
     #1.21*exp(-((tpost - tpre)/ms + 12.7)**2/13.61**2) - 0.21
+    #先更新lastspike再触发
     synapse_pre='''
     g_post += depress*w*amp
-    tpre = t
-    deltaw = type*(1.21*exp(-((tpost - tpre)/ms + 12.7)**2/13.61**2) - 0.21)
-    w = clip(w + rate*deltaw, 0, 10)
+    deltaw = type*(1.21*exp(-((lastspike_post - lastspike_pre)/ms + 12.7)**2/13.61**2) - 0.21)
+    w = clip(w + rate*deltaw, 0, w_max)
     type = 0
     '''
     synapse_post='''
-    tpost = t
-    deltaw = (1 - type)*(1.21*exp(-((tpost - tpre)/ms + 12.7)**2/13.61**2) - 0.21)
-    w = clip(w + rate*deltaw, 0, 10)
+    deltaw = (1 - type)*(1.21*exp(-((lastspike_post - lastspike_pre)/ms + 12.7)**2/13.61**2) - 0.21)
+    w = clip(w + rate*deltaw, 0, w_max)
     type = 1
     '''
 
     def __init__(self, source_neuron, target_neuron, *args, **kwargs):
         super(STDP, self).__init__(source_neuron, target_neuron, self.synapse_model, on_pre=self.synapse_pre, on_post=self.synapse_post)
-        super(STDP, self).connect(n=10, *args, **kwargs)
-        self.w = 5
+        super(STDP, self).connect(n=100, *args, **kwargs)
+        self.w = 'rand()'
         if hasattr(source_neuron, 'dp'):
             self.depress = source_neuron.dp[0]
         else:
             self.depress = 1
-        self.delay = 'rand() * 15*ms'
+        self.delay = 'rand() * 100*ms'
 
 
 class Monitor(StateMonitor):
@@ -137,13 +135,14 @@ class Monitor(StateMonitor):
             for i in range(len(self.v)):
                 plt.plot(self.t/ms, self.v[i]/mV, label='v%d' % i)
             plt.legend()
+            plt.title('sub %d' % i)
             plt.xlabel('t (ms)')
             plt.ylabel('v (mV)')
         elif self.type == 'synapse':
             plt.plot(self.t/ms, self.w[0], label='w')
             plt.legend()
             plt.xlabel('t (ms)')
-            plt.ylabel('v (mV)')
+            plt.ylabel('w')
 
 
 class SensingCircuit:
@@ -190,42 +189,13 @@ class Fly:
 
 
 '''
-突触权值改变转换为微分方程形式
+t0 = np.linspace(-15, 15, 1000)
+plt.plot(t0, np.exp(-t0**2/4.5**2)*(1.2*np.exp(-t0**2/0.8**2) - 0.2))
 '''
-class NeuronTest(NeuronGroup):
-    __type__ = 'neuron'
-
-    neuron_model = '''
-    w = x1*(1.2*x2 -0.2) : 1
-    dx1/dt = (x1*y1)/second : 1
-    dx2/dt = (x2*y2)/second : 1
-    dy1/dt = -(2/4.5**2)/ms : 1
-    dy2/dt = -(2/0.8**2)/ms : 1
-    '''
-
-    def __init__(self, *args, **kwargs):
-        super(NeuronTest, self).__init__(1, self.neuron_model, threshold='w>100', reset='', method='euler')
-        self.x1 = 1
-        self.x2 = 1
-
-
 defaultclock.dt = 500.*us
 if __name__ == '__main__':
     start_scope()
-    
-    nt = NeuronTest()
-    
-    n = StateMonitor(nt, 'w', record=True)
-    
-    run(500*ms)
 
-    plt.plot(n.t/ms, n.w[0], label='w')
-    plt.legend()
-    plt.xlabel('t (ms)')
-    plt.ylabel('w')
-    plt.show()
-    
-    '''
     network = Network()
 
     sc = SensingCircuit(network)
@@ -251,22 +221,25 @@ if __name__ == '__main__':
     #left = Monitor(cc.RS_L)
     #right = Monitor(cc.RS_R)
 
-    s1 = Monitor(dc.stdp8)
-    s2 = Monitor(dc.stdp9)
+    s2 = Monitor(dc.stdp2)
+    s4 = Monitor(dc.stdp3)
+    s5 = Monitor(dc.stdp5)
+    s6 = Monitor(dc.stdp7)
 
-    n = [n1, n2, n3, n4, n5, n6, n7]
+    n = [n1, n2, n3, n4, n5, s2, s4, s5, s6]
     #n = [n6, n7, n5]
     network.add(n)
 
-    sc.CH.I_ext[0] = 10*amp
+    sc.CH.I_ext[0] = 5*amp
+    #dc.RS.I_ext[0] = 10*amp
     pc.CH.I_ext = 0*amp
-    network.run(500*ms, report='text')
+    network.run(1000*ms, report='text')
 
-    pc.CH.I_ext = 10*amp
-    network.run(500*ms, report='text')
+    pc.CH.I_ext = 5*amp
+    network.run(1000*ms, report='text')
 
     pc.CH.I_ext = 0*amp
-    network.run(500*ms, report='text')
+    network.run(1000*ms, report='text')
 
     plt.figure(figsize=(12, 2 * len(n)))
 
@@ -275,4 +248,3 @@ if __name__ == '__main__':
         n[i].show()
 
     plt.show()
-    '''
