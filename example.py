@@ -118,8 +118,9 @@ class STDP(Synapses):
 
 
 class Monitor(StateMonitor):
-    def __init__(self, node, record=True, *args, **kwargs):
+    def __init__(self, node, record=True, title='', *args, **kwargs):
         self.type = 'other'
+        self.title = title
         if hasattr(node, '__type__'):
             if node.__type__ == 'neuron':
                 self.type = 'neuron'
@@ -135,7 +136,7 @@ class Monitor(StateMonitor):
             for i in range(len(self.v)):
                 plt.plot(self.t/ms, self.v[i]/mV, label='v%d' % i)
             plt.legend()
-            plt.title('sub %d' % i)
+            plt.title(self.title)
             plt.xlabel('t (ms)')
             plt.ylabel('v (mV)')
         elif self.type == 'synapse':
@@ -143,6 +144,7 @@ class Monitor(StateMonitor):
             plt.legend()
             plt.xlabel('t (ms)')
             plt.ylabel('w')
+        plt.tight_layout()
 
 
 class SensingCircuit:
@@ -211,11 +213,11 @@ if __name__ == '__main__':
     stdp6 = STDP(dc.CH_R, cc.RS_R)
     network.add([stdp1, stdp2, stdp3, stdp4, stdp5, stdp6])
 
-    n1 = Monitor(dc.CH_L)
-    n2 = Monitor(dc.CH_R)
-    n3 = Monitor(dc.LTS_L)
-    n4 = Monitor(dc.LTS_R)
-    n5 = Monitor(dc.RS)
+    n1 = Monitor(dc.CH_L, title='Left CH Neuron')
+    n2 = Monitor(dc.CH_R, title='Right CH Neuron')
+    n3 = Monitor(dc.LTS_L, title='Left LTS Neuron')
+    n4 = Monitor(dc.LTS_R, title='Right LTS Neuron')
+    n5 = Monitor(dc.RS, title='Input RS Neuron')
     n6 = Monitor(pc.CH)
     n7 = Monitor(dc.LTS)
     #left = Monitor(cc.RS_L)
@@ -226,20 +228,20 @@ if __name__ == '__main__':
     s5 = Monitor(dc.stdp5)
     s6 = Monitor(dc.stdp7)
 
-    n = [n1, n2, n3, n4, n5, s2, s4, s5, s6]
+    n = [n1, n2, n3, n4, n5]
     #n = [n6, n7, n5]
     network.add(n)
 
     sc.CH.I_ext[0] = 5*amp
     #dc.RS.I_ext[0] = 10*amp
     pc.CH.I_ext = 0*amp
-    network.run(1000*ms, report='text')
+    network.run(2000*ms, report='text')
 
-    pc.CH.I_ext = 5*amp
+    #pc.CH.I_ext = 5*amp
     network.run(1000*ms, report='text')
 
     pc.CH.I_ext = 0*amp
-    network.run(1000*ms, report='text')
+    network.run(2000*ms, report='text')
 
     plt.figure(figsize=(12, 2 * len(n)))
 
