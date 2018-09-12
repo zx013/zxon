@@ -65,8 +65,6 @@ class Izhikevich(NeuronGroup):
 
     def __init__(self, spike_type='RS', num=1, *args, **kwargs):
         super(Izhikevich, self).__init__(num, self.neuron_model, threshold=self.neuron_threshold, reset=self.neuron_reset, refractory=2*ms, method='euler')
-        self.v = -70*mV
-        self.u = -14*mV
         self.dp = 1 #是否是抑制神经元，1/-1
         if spike_type == 'RS':
             spike_choice = 0
@@ -78,6 +76,8 @@ class Izhikevich(NeuronGroup):
         else:
             spike_choice = 0
         self.a, self.b, self.c, self.d, _ = self.params[spike_choice]
+        self.v = -65*mV
+        self.u = self.b * self.v
 
 
 class STDP(Synapses):
