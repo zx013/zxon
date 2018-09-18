@@ -68,12 +68,10 @@ class STDP(Synapses):
     w_min = 0 : 1
     w_max = 1 : 1
     deltat : 1
-    deltaw : 1
     trace : 1
-    depress : 1
+    depress: 1
     forget_rate = 0.2 : 1
     rate = 0.00025 : 1
-    type : 1
     '''
 
     #1.11*exp(-((lastspike_post - lastspike_pre)/ms + 2)**2/1.11**2) - 0.11
@@ -83,18 +81,14 @@ class STDP(Synapses):
     g_post += depress*w*amp
     deltat = (lastspike_post - lastspike_pre)/ms
     trace *= (1 - forget_rate)**abs(deltat)
-    deltaw = type*(1.21*exp(-(deltat + 12.7)**2/13.61**2) - 0.21)
-    trace += deltaw
+    trace += 1.21*exp(-(deltat + 12.7)**2/13.61**2) - 0.21
     w = clip(w + rate*trace, w_min, w_max)
-    type = 0
     '''
     synapse_post='''
     deltat = (lastspike_post - lastspike_pre)/ms
     trace *= (1 - forget_rate)**abs(deltat)
-    deltaw = (1 - type)*(1.21*exp(-(deltat + 12.7)**2/13.61**2) - 0.21)
-    trace += deltaw
+    trace += 1.21*exp(-(deltat + 12.7)**2/13.61**2) - 0.21
     w = clip(w + rate*trace, w_min, w_max)
-    type = 1
     '''
 
     static_model = '''

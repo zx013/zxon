@@ -1,2 +1,0 @@
-# zxon
-new neuron model
