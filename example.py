@@ -10,7 +10,9 @@ import brian2.numpy_ as np
 import matplotlib.pyplot as plt
 from brian2 import *
 import random
+import brian2genn
 
+#set_device('genn')
 prefs.codegen.target = 'numpy'
 
 class Poisson(PoissonGroup):
@@ -120,8 +122,7 @@ class STDP(Synapses):
         else:
             self.depress = 1
         self.delay = 'rand() * 100*ms'
-        if len(self.delay) == 100:
-            self.delay = np.arange(100)*ms
+        self.delay = np.arange(len(self.delay))*ms
 
 
 class Monitor(StateMonitor):
@@ -182,13 +183,7 @@ class DecisionCircuit:
         network.add([self.stdp1, self.stdp2, self.stdp3, self.stdp4, self.stdp5, self.stdp6, self.stdp7, self.stdp8, self.stdp9])
 
 
-
-'''
-t0 = np.linspace(-15, 15, 1000)
-plt.plot(t0, np.exp(-t0**2/4.5**2)*(1.2*np.exp(-t0**2/0.8**2) - 0.2))
-'''
-defaultclock.dt = 500.*us
-if __name__ == '__main__':
+def test():
     start_scope()
 
     network = Network()
@@ -227,3 +222,11 @@ if __name__ == '__main__':
         n[i].show()
 
     plt.show()
+
+'''
+t0 = np.linspace(-15, 15, 1000)
+plt.plot(t0, np.exp(-t0**2/4.5**2)*(1.2*np.exp(-t0**2/0.8**2) - 0.2))
+'''
+defaultclock.dt = 500.*us
+if __name__ == '__main__':
+    test()
