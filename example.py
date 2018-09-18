@@ -21,29 +21,9 @@ class Izhikevich(NeuronGroup):
     __type__ = 'neuron'
 
     params = \
-    ((0.02,   0.2,    -65,    8,    0), #Regular Spiking
-    (0.02,    0.2,    -50,    2,    0), #Chattering
-    (0.02,    0.25,   -65,    2,    0), #Low-Threshod Spiking
-    (0.02,    0.2,    -65,    6,    14), #tonic spiking
-    (0.02,    0.25,   -65,    6,    0.5), #phasic spiking
-    (0.02,    0.2,    -50,    2,    15), #tonic bursting
-    (0.02,    0.25,   -55,    0.05, 0.6), #phasic bursting
-    (0.02,    0.2,    -55,    4,    10), #mixed mode
-    (0.01,    0.2,    -65,    8,    30), #spike frequency adaptation
-    (0.02,    -0.1,   -55,    6,    0), #Class 1
-    (0.2,     0.26,   -65,    0,    0), #Class 2
-    (0.02,    0.2,    -65,    6,    7), #spike latency
-    (0.05,    0.26,   -60,    0,    0), #subthreshold oscillations
-    (0.1,     0.26,   -60,    -1,   0), #resonator
-    (0.02,    -0.1,   -55,    6,    0), #integrator
-    (0.03,    0.25,   -60,    4,    0), #rebound spike
-    (0.03,    0.25,   -52,    0,    0), #rebound burst
-    (0.03,    0.25,   -60,    4,    0), #threshold variability
-    (1,       1.5,    -60,    0,    -65), #bistability
-    (1,       0.2,    -60,    -21,  0), #DAP
-    (0.02,    1,      -55,    4,    0), #accomodation
-    (-0.02,   -1,     -60,    8,    80), #inhibition-induced spiking
-    (-0.026,  -1,     -45,    -8,    80)) #inhibition-induced bursting, d(0 -> -8)
+    ((0.02,   0.2,    -65,    8), #Regular Spiking
+    (0.02,    0.2,    -50,    2), #Chattering
+    (0.02,    0.25,   -65,    2)) #Low-Threshod Spiking
 
     neuron_model = '''
     a : 1
@@ -75,7 +55,7 @@ class Izhikevich(NeuronGroup):
             self.dp = -1
         else:
             spike_choice = 0
-        self.a, self.b, self.c, self.d, _ = self.params[spike_choice]
+        self.a, self.b, self.c, self.d = self.params[spike_choice]
         self.v = -65*mV
         self.u = self.b * self.v
 
@@ -85,36 +65,69 @@ class STDP(Synapses):
 
     synapse_model = '''
     w : 1
+    w_min = 0 : 1
     w_max = 1 : 1
+    deltat : 1
     deltaw : 1
+    trace : 1
     depress : 1
-    rate = 0.01 : 1
+    forget_rate = 0.2 : 1
+    rate = 0.00025 : 1
     type : 1
     '''
-    #1.11*exp(-((tpost - tpre)/ms + 2)**2/1.11**2) - 0.11
-    #1.21*exp(-((tpost - tpre)/ms + 12.7)**2/13.61**2) - 0.21
+
+    #1.11*exp(-((lastspike_post - lastspike_pre)/ms + 2)**2/1.11**2) - 0.11
+    #1.21*exp(-((lastspike_post - lastspike_pre)/ms + 12.7)**2/13.61**2) - 0.21
     #先更新lastspike再触发
     synapse_pre='''
     g_post += depress*w*amp
-    deltaw = type*(1.21*exp(-((lastspike_post - lastspike_pre)/ms + 12.7)**2/13.61**2) - 0.21)
-    w = clip(w + rate*deltaw, 0, w_max)
+    deltat = (lastspike_post - lastspike_pre)/ms
+    trace *= (1 - forget_rate)**abs(deltat)
+    deltaw = type*(1.21*exp(-(deltat + 12.7)**2/13.61**2) - 0.21)
+    trace += deltaw
+    w = clip(w + rate*trace, w_min, w_max)
     type = 0
     '''
     synapse_post='''
-    deltaw = (1 - type)*(1.21*exp(-((lastspike_post - lastspike_pre)/ms + 12.7)**2/13.61**2) - 0.21)
-    w = clip(w + rate*deltaw, 0, w_max)
+    deltat = (lastspike_post - lastspike_pre)/ms
+    trace *= (1 - forget_rate)**abs(deltat)
+    deltaw = (1 - type)*(1.21*exp(-(deltat + 12.7)**2/13.61**2) - 0.21)
+    trace += deltaw
+    w = clip(w + rate*trace, w_min, w_max)
     type = 1
     '''
 
-    def __init__(self, source_neuron, target_neuron, *args, **kwargs):
-        super(STDP, self).__init__(source_neuron, target_neuron, self.synapse_model, on_pre=self.synapse_pre, on_post=self.synapse_post)
+    static_model = '''
+    w : 1
+    depress : 1
+    '''
+    static_pre = '''
+    g_post += depress*w*amp
+    '''
+
+    def __init__(self, source_neuron, target_neuron, wrand='rand()', static=True, part=False, *args, **kwargs):
+        if static:
+            super(STDP, self).__init__(source_neuron, target_neuron, self.static_model, on_pre=self.static_pre)
+        else:
+            super(STDP, self).__init__(source_neuron, target_neuron, self.synapse_model, on_pre=self.synapse_pre, on_post=self.synapse_post)
         super(STDP, self).connect(n=100, *args, **kwargs)
-        self.w = 'rand()'
+        self.w = wrand
+        if part:
+            for i in range(100):
+                if i % 2 == 0:
+                    self.w[i] = 0
+                if i % 3 == 0:
+                    self.w[i] = 0
+                if i % 7 == 0:
+                    self.w[i] = 0
+
         if hasattr(source_neuron, 'dp'):
             self.depress = source_neuron.dp[0]
         else:
             self.depress = 1
         self.delay = 'rand() * 100*ms'
+        if len(self.delay) == 100:
+            self.delay = np.arange(100)*ms
 
 
 class Monitor(StateMonitor):
@@ -147,16 +160,6 @@ class Monitor(StateMonitor):
         plt.tight_layout()
 
 
-class SensingCircuit:
-    def __init__(self, network):
-        self.CH = Izhikevich('CH')
-        network.add(self.CH)
-
-class PunishmentCircuit:
-    def __init__(self, network):
-        self.CH = Izhikevich('CH')
-        network.add(self.CH)
-
 class ControlCircuit:
     def __init__(self, network):
         self.RS_L = Izhikevich('RS')
@@ -164,30 +167,26 @@ class ControlCircuit:
         network.add([self.RS_L, self.RS_R])
 
 class DecisionCircuit:
-    def __init__(self, network):
-        self.CH_L = Izhikevich('CH')
-        self.CH_R = Izhikevich('CH')
-        self.LTS_L = Izhikevich('LTS')
-        self.LTS_R = Izhikevich('LTS')
-        self.RS = Izhikevich('RS')
-        self.LTS = Izhikevich('LTS')
-        network.add([self.CH_L, self.CH_R, self.LTS_L, self.LTS_R, self.RS, self.LTS])
+    def __init__(self, network, num=1):
+        self.CH_L = Izhikevich('CH', num=num)
+        self.CH_R = Izhikevich('CH', num=num)
+        self.LTS_L = Izhikevich('LTS', num=num)
+        self.LTS_R = Izhikevich('LTS', num=num)
+        self.RS = Izhikevich('RS', num=num)
+        self.CH = Izhikevich('CH', num=num)
+        network.add([self.CH_L, self.CH_R, self.LTS_L, self.LTS_R, self.RS, self.CH])
 
-        self.stdp1 = STDP(self.LTS, self.RS, j='i')
-        self.stdp2 = STDP(self.RS, self.CH_L, j='i')
-        self.stdp3 = STDP(self.RS, self.CH_R, j='i')
+        self.stdp1 = STDP(self.CH, self.RS, j='i')
+        self.stdp2 = STDP(self.RS, self.CH_L, static=False, j='i')
+        self.stdp3 = STDP(self.RS, self.CH_R, static=False, j='i')
         self.stdp4 = STDP(self.CH_L, self.LTS_L, condition='j!=i')
         self.stdp5 = STDP(self.CH_L, self.LTS_R)
         self.stdp6 = STDP(self.CH_R, self.LTS_R, condition='j!=i')
         self.stdp7 = STDP(self.CH_R, self.LTS_L)
-        self.stdp8 = STDP(self.LTS_L, self.CH_L, j='i')
-        self.stdp9 = STDP(self.LTS_R, self.CH_R, j='i')
+        self.stdp8 = STDP(self.LTS_L, self.CH_L, wrand='rand() + 1', part=True, j='i')
+        self.stdp9 = STDP(self.LTS_R, self.CH_R, wrand='rand() + 1', part=True, j='i')
         network.add([self.stdp1, self.stdp2, self.stdp3, self.stdp4, self.stdp5, self.stdp6, self.stdp7, self.stdp8, self.stdp9])
 
-
-class Fly:
-    def __init__(self):
-        pass
 
 
 '''
@@ -200,48 +199,32 @@ if __name__ == '__main__':
 
     network = Network()
 
-    sc = SensingCircuit(network)
-    pc = PunishmentCircuit(network)
     cc = ControlCircuit(network)
-    dc = DecisionCircuit(network)
+    dc = DecisionCircuit(network, num=2)
 
-    stdp1 = STDP(sc.CH, dc.RS, j='i')
-    stdp2 = STDP(pc.CH, dc.LTS)
-    stdp3 = STDP(pc.CH, dc.CH_L)
-    stdp4 = STDP(pc.CH, dc.CH_R)
-    stdp5 = STDP(dc.CH_L, cc.RS_L)
-    stdp6 = STDP(dc.CH_R, cc.RS_R)
-    network.add([stdp1, stdp2, stdp3, stdp4, stdp5, stdp6])
+    stdp1 = STDP(dc.CH_L, cc.RS_L)
+    stdp2 = STDP(dc.CH_R, cc.RS_R)
+    network.add([stdp1, stdp2])
 
     n1 = Monitor(dc.CH_L, title='Left CH Neuron')
     n2 = Monitor(dc.CH_R, title='Right CH Neuron')
     n3 = Monitor(dc.LTS_L, title='Left LTS Neuron')
     n4 = Monitor(dc.LTS_R, title='Right LTS Neuron')
     n5 = Monitor(dc.RS, title='Input RS Neuron')
-    n6 = Monitor(pc.CH)
-    n7 = Monitor(dc.LTS)
-    #left = Monitor(cc.RS_L)
-    #right = Monitor(cc.RS_R)
+    left = Monitor(cc.RS_L, title='Output Left RS Neuron')
+    right = Monitor(cc.RS_R, title='Output Right RS Neuron')
 
-    s2 = Monitor(dc.stdp2)
-    s4 = Monitor(dc.stdp3)
-    s5 = Monitor(dc.stdp5)
-    s6 = Monitor(dc.stdp7)
+    s1 = Monitor(dc.stdp2)
+    s2 = Monitor(dc.stdp3)
+    s3 = Monitor(dc.stdp5)
+    s4 = Monitor(dc.stdp7)
 
-    n = [n1, n2, n3, n4, n5]
+    n = [n1, n2, n3, n4, n5, left, right]
     #n = [n6, n7, n5]
     network.add(n)
 
-    sc.CH.I_ext[0] = 5*amp
-    #dc.RS.I_ext[0] = 10*amp
-    pc.CH.I_ext = 0*amp
-    network.run(2000*ms, report='text')
-
-    #pc.CH.I_ext = 5*amp
-    network.run(1000*ms, report='text')
-
-    pc.CH.I_ext = 0*amp
-    network.run(2000*ms, report='text')
+    dc.CH.I_ext[0] = 5*amp
+    network.run(5000*ms, report='text')
 
     plt.figure(figsize=(12, 2 * len(n)))
 
