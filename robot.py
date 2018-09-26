@@ -62,10 +62,26 @@ class Izhikevich:
                 self.spikes[num].append(self.t)
         self.record()
 
-
     def record(self):
         self.record_t = np.append(self.record_t, self.t)
         self.record_v = np.append(self.record_v, self.v.reshape(self.num, 1), axis=1)
+
+    def plot(self, sub):
+        plt.subplot(sub)
+        x = np.zeros(0)
+        y = np.zeros(0)
+        for num in range(self.num):
+            x = np.append(x, self.spikes[num])
+            y = np.append(y, np.ones(len(self.spikes[num])) * num)
+        plt.plot(x, y, 'o', markersize=3)
+        #plt.legend()
+        plt.xlim((- 0.05 * self.t, 1.05 * self.t))
+        plt.ylim((- 0.2, self.num - 0.8))
+        #plt.xticks()
+        plt.yticks(np.arange(self.num))
+        plt.xlabel('t (ms)')
+        plt.ylabel('index')
+
 
 
 class STDP:
@@ -119,7 +135,7 @@ class STDP:
                 spike[index] += self.t == t + self.delay[index]
 
             self.izh_post.g[j] += sum(self.w[index] * spike[index])
-            delta[index] = self.izh_post.lastspike[i] - self.izh_pre.lastspike[j]
+            delta[index] = self.izh_post.lastspike[j] - self.izh_pre.lastspike[i]
 
         if self.stdp_type == 'normal':
             self.trace *= 0.8 #遗忘速率
@@ -153,13 +169,13 @@ class Network:
 
 
 class Robot:
-    def __init__(self, num, index, rate):
+    def __init__(self, num, network, index, rate):
         self.num = num #神经元数量
+        self.network = network
         self.location = -300 #线索的初始坐标
         self.maximun = 1000 #机械臂最大偏移，右边为正
         self.minimun = -1000
-        self.trace = np.zeros(0)
-        self.trace = np.append(self.trace, 0)
+        self.trace = np.zeros(1) #第一个为数量
         self.trace = np.append(self.trace, self.location)
         self.index = index
         self.rate = rate
@@ -172,74 +188,67 @@ class Robot:
     #向左或向右移动若干距离，右移时为1，左移时为-1
     def move(self, side=1, length=100):
         before = self.location
-        self.location += side * length
-        if self.location > self.maximun:
-            self.location = self.maximun
-        if self.location < self.minimun:
-            self.location = self.minimun
+        self.location = np.clip(self.location + side * length, self.minimun, self.maximun)
         after = self.location
         self.trace[0] += 1
         self.trace = np.append(self.trace, self.location)
-        if before * after <= 0:
-            return True
-        else:
-            return False
+        return before * after <= 0 #穿过或者到达了线索
+
+    def sense(self):
+        self.input.I_ext *= 0
+        step = (self.maximun - self.minimun) / self.num
+        index = np.clip(int((self.location - self.minimun) / step), 0, self.num - 1)
+        self.input.I_ext[index] = 10
+
+    def run(self, during=1000, learning_rate=0):
+        for stdp in self.stdp_list:
+            stdp.rate = learning_rate
+
+        left_spikes = self.left.num_spikes
+        right_spikes = self.right.num_spikes
+        self.network.run(during)
+
+        left_spikes = self.left.num_spikes - left_spikes
+        right_spikes = self.right.num_spikes - right_spikes
+        print(list(self.input.I_ext), left_spikes, right_spikes)
+        return left_spikes, right_spikes
 
 
 if __name__ == '__main__':
     network = Network()
     num = 2
-    RS = Izhikevich('RS', num)
+    Input_RS = Izhikevich('RS', num)
     CH_L = Izhikevich('CH', num)
     CH_R = Izhikevich('CH', num)
     LTS_L = Izhikevich('LTS', num)
     LTS_R = Izhikevich('LTS', num)
-    network.add([RS, CH_L, CH_R, LTS_L, LTS_R])
+    Output_RS_L = Izhikevich('RS')
+    Output_RS_R = Izhikevich('RS')
+    network.add([Input_RS, CH_L, CH_R, LTS_L, LTS_R, Output_RS_L, Output_RS_R])
 
-    STDP_R_CL = STDP(RS, CH_L, condition='i==j')
-    STDP_R_CR = STDP(RS, CH_R, condition='i==j')
-    STDP_CL_LR = STDP(CH_L, LTS_R, stdp_type='part')
-    STDP_CR_LL = STDP(CH_R, LTS_L, stdp_type='part')
-    STDP_CL_LL = STDP(CH_L, LTS_L, stdp_type='part', condition='i!=j')
-    STDP_CR_LR = STDP(CH_R, LTS_R, stdp_type='part', condition='i!=j')
-    STDP_LL_CL = STDP(LTS_L, CH_L, stdp_type='depress', condition='i==j')
-    STDP_LR_CR = STDP(LTS_R, CH_R, stdp_type='depress', condition='i==j')
-    network.add([STDP_R_CL, STDP_R_CR, STDP_CL_LR, STDP_CR_LL, STDP_CL_LL, STDP_CR_LR, STDP_LL_CL, STDP_LR_CR])
+    IR_CL = STDP(Input_RS, CH_L, condition='i==j')
+    IR_CR = STDP(Input_RS, CH_R, condition='i==j')
+    CL_LR = STDP(CH_L, LTS_R, stdp_type='part')
+    CR_LL = STDP(CH_R, LTS_L, stdp_type='part')
+    CL_LL = STDP(CH_L, LTS_L, stdp_type='part', condition='i!=j')
+    CR_LR = STDP(CH_R, LTS_R, stdp_type='part', condition='i!=j')
+    LL_CL = STDP(LTS_L, CH_L, stdp_type='depress', condition='i==j')
+    LR_CR = STDP(LTS_R, CH_R, stdp_type='depress', condition='i==j')
+    CL_OL = STDP(CH_L, Output_RS_L)
+    CR_OR = STDP(CH_R, Output_RS_R)
+    network.add([IR_CL, IR_CR, CL_LR, CR_LL, CL_LL, CR_LR, LL_CL, LR_CR, CL_OL, CR_OR])
 
-    RS.I_ext[0] = 10
+    Input_RS.I_ext[0] = 10
     network.run(2000)
 
     plt.figure(figsize=(12, 2 * 7))
 
-    plt.subplot(711)
-    plt.plot(LTS_L.spikes[0], np.ones(len(LTS_L.spikes[0])), 'o', markersize=3)
-    plt.plot(LTS_L.record_t, LTS_L.record_v[0])
-    plt.plot(LTS_L.record_t, LTS_L.record_v[1])
+    Input_RS.plot(711)
+    CH_L.plot(712)
+    CH_R.plot(713)
+    LTS_L.plot(714)
+    LTS_R.plot(715)
+    Output_RS_L.plot(716)
+    Output_RS_R.plot(717)
 
 
-    plt.subplot(712)
-    plt.plot(LTS_R.spikes[0], np.ones(len(LTS_R.spikes[0])), 'o', markersize=3)
-    plt.plot(LTS_R.record_t, LTS_R.record_v[0])
-    plt.plot(LTS_R.record_t, LTS_R.record_v[1])
-
-    plt.subplot(713)
-    plt.plot(CH_L.spikes[0], np.ones(len(CH_L.spikes[0])), 'o', markersize=3)
-    plt.plot(CH_L.record_t, CH_L.record_v[0])
-    plt.plot(CH_L.record_t, CH_L.record_v[1])
-
-    plt.subplot(714)
-    plt.plot(CH_R.spikes[0], np.ones(len(CH_R.spikes[0])), 'o', markersize=3)
-    plt.plot(CH_R.record_t, CH_R.record_v[0])
-    plt.plot(CH_R.record_t, CH_R.record_v[1])
-
-    plt.subplot(715)
-    plt.plot(RS.spikes[0], np.ones(len(RS.spikes[0])), 'o', markersize=3)
-    plt.plot(RS.record_t, RS.record_v[0])
-    plt.plot(RS.record_t, RS.record_v[1])
-
-    #plt.plot(RS.record_t, RS.record_v, label='v')
-    #plt.plot(CH_L.record_t, CH_L.record_v, label='n1')
-    #plt.plot(CH_R.record_t, CH_R.record_v, label='n2')
-    #plt.legend()
-    #plt.xlabel('t (ms)')
-    #plt.ylabel('spike')
