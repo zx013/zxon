@@ -25,10 +25,6 @@ class Izhikevich:
         self.num = num
         self.spike_type = spike_type
         self.a, self.b, self.c, self.d = self.params[spike_type]
-        self.a *= np.ones(num)
-        self.b *= np.ones(num)
-        self.c *= np.ones(num)
-        self.d *= np.ones(num)
 
         self.v = np.ones(num) * -65
         self.u = np.ones(num) * self.b * self.v
@@ -47,8 +43,6 @@ class Izhikevich:
         self.record_v = np.zeros((num, 0))
         self.record()
 
-        self.stdp = []
-
     def next(self):
         self.t += 1
 
@@ -59,13 +53,13 @@ class Izhikevich:
             self.I += (self.g - self.I) / 5 / step #把psp转换成微分方程形式
             self.g += - self.g / 5 / step
 
-        num = 0
         #spike = self.v > 30
-        if self.v[num] > 30:
-            self.v[num] = self.c
-            self.u[num] += self.d
-            self.lastspike[num] = self.t
-            self.spikes[num].append(self.t)
+        for num in range(self.num):
+            if self.v[num] > 30:
+                self.v[num] = self.c
+                self.u[num] += self.d
+                self.lastspike[num] = self.t
+                self.spikes[num].append(self.t)
         self.record()
 
 
@@ -75,41 +69,60 @@ class Izhikevich:
 
 
 class STDP:
-    def __init__(self, izh_pre, izh_post, num=100, rate=0, stdp_type='normal'):
+    def __init__(self, izh_pre, izh_post, num=100, rate=0, stdp_type='normal', connect_type='all', condition='1'):
         self.izh_pre = izh_pre
         self.izh_post = izh_post #突触连接到的神经元
-        self.index = self.izh_pre.num * self.izh_post.num #最多的连接数
         self.num = num
-        self.izh_pre.stdp.append(self)
         self.t = 0
 
-        self.rate = rate
-        self.trace = np.zeros(num)
+        self.link = np.ones((self.izh_pre.num, self.izh_post.num)) #连接矩阵
+        self.i = np.zeros(0, dtype=np.int)
+        self.j = np.zeros(0, dtype=np.int)
+        self.size = 0
+        for i in range(self.izh_pre.num):
+            for j in range(self.izh_post.num):
+                if not eval(condition):
+                    self.link[i][j] = 0
+                if not self.link[i][j]:
+                    continue
+                self.i = np.append(self.i, i)
+                self.j = np.append(self.j, j)
+                self.size += 1
+
         self.stdp_type = stdp_type
         if stdp_type == 'depress': #LTS -> CH
-            self.w = -1 - np.random.rand(1, 100)[0]
+            self.w = -1 - np.random.rand(self.size, 100)
         else:
-            self.w = np.random.rand(1, 100)[0]
+            self.w = np.random.rand(self.size, 100)
             if stdp_type == 'part': #CH -> LTS
                 for i in range(num):
                     if (i % 2 == 0) or (i % 3 == 0) or (i % 7 == 0):
-                        self.w[i] = 0
-        self.delay = np.arange(num)
+                        self.w[:, i] = 0
+
+        self.rate = rate
+        self.trace = np.zeros((self.size, num))
+        self.delay = np.tile(np.arange(num), self.size).reshape(self.size, num)
 
     def next(self):
         self.t += 1
-        num = 0
-        spike = np.zeros(self.num)
-        for t in self.izh_pre.spikes[num][::-1]: #时间t经过延时后恰好是当前时间
-            if self.t - t > 130:
-                break
-            spike += self.t == t + self.delay
 
-        self.izh_post.g[num] += sum(self.w * spike)
+        spike = np.zeros((self.size, self.num))
+        delta = np.zeros((self.size, self.num))
+        for index in range(self.size):
+            i = self.i[index]
+            j = self.j[index]
+            if not self.link[i][j]:
+                continue
+            for t in self.izh_pre.spikes[i][::-1]: #时间t经过延时后恰好是当前时间
+                if self.t - t > 130:
+                    break
+                spike[index] += self.t == t + self.delay[index]
+
+            self.izh_post.g[j] += sum(self.w[index] * spike[index])
+            delta[index] = self.izh_post.lastspike[i] - self.izh_pre.lastspike[j]
 
         if self.stdp_type == 'normal':
             self.trace *= 0.8 #遗忘速率
-            delta = self.izh_post.lastspike - self.izh_pre.lastspike
             self.trace += (1.21 * np.exp(-(delta + 12.7) ** 2 / 13.61 ** 2) - 0.21) * spike
             self.w = np.clip(self.w + self.rate * self.trace * spike, 0, 1)
 
@@ -175,20 +188,23 @@ class Robot:
 
 if __name__ == '__main__':
     network = Network()
-    RS = Izhikevich('RS')
-    CH_L = Izhikevich('CH')
-    CH_R = Izhikevich('CH')
-    LTS_L = Izhikevich('LTS')
-    LTS_R = Izhikevich('LTS')
+    num = 2
+    RS = Izhikevich('RS', num)
+    CH_L = Izhikevich('CH', num)
+    CH_R = Izhikevich('CH', num)
+    LTS_L = Izhikevich('LTS', num)
+    LTS_R = Izhikevich('LTS', num)
     network.add([RS, CH_L, CH_R, LTS_L, LTS_R])
 
-    STDP_RS_CH_L = STDP(RS, CH_L)
-    STDP_RS_CH_R = STDP(RS, CH_R)
-    STDP_CH_L_LTS_R = STDP(CH_L, LTS_R, stdp_type='part')
-    STDP_CH_R_LTS_L = STDP(CH_R, LTS_L, stdp_type='part')
-    STDP_LTS_L_CH_L = STDP(LTS_L, CH_L, stdp_type='depress')
-    STDP_LTS_R_CH_R = STDP(LTS_R, CH_R, stdp_type='depress')
-    network.add([STDP_RS_CH_L, STDP_RS_CH_R, STDP_CH_L_LTS_R, STDP_CH_R_LTS_L, STDP_LTS_L_CH_L, STDP_LTS_R_CH_R])
+    STDP_R_CL = STDP(RS, CH_L, condition='i==j')
+    STDP_R_CR = STDP(RS, CH_R, condition='i==j')
+    STDP_CL_LR = STDP(CH_L, LTS_R, stdp_type='part')
+    STDP_CR_LL = STDP(CH_R, LTS_L, stdp_type='part')
+    STDP_CL_LL = STDP(CH_L, LTS_L, stdp_type='part', condition='i!=j')
+    STDP_CR_LR = STDP(CH_R, LTS_R, stdp_type='part', condition='i!=j')
+    STDP_LL_CL = STDP(LTS_L, CH_L, stdp_type='depress', condition='i==j')
+    STDP_LR_CR = STDP(LTS_R, CH_R, stdp_type='depress', condition='i==j')
+    network.add([STDP_R_CL, STDP_R_CR, STDP_CL_LR, STDP_CR_LL, STDP_CL_LL, STDP_CR_LR, STDP_LL_CL, STDP_LR_CR])
 
     RS.I_ext[0] = 10
     network.run(2000)
@@ -198,23 +214,28 @@ if __name__ == '__main__':
     plt.subplot(711)
     plt.plot(LTS_L.spikes[0], np.ones(len(LTS_L.spikes[0])), 'o', markersize=3)
     plt.plot(LTS_L.record_t, LTS_L.record_v[0])
+    plt.plot(LTS_L.record_t, LTS_L.record_v[1])
 
 
     plt.subplot(712)
     plt.plot(LTS_R.spikes[0], np.ones(len(LTS_R.spikes[0])), 'o', markersize=3)
     plt.plot(LTS_R.record_t, LTS_R.record_v[0])
+    plt.plot(LTS_R.record_t, LTS_R.record_v[1])
 
     plt.subplot(713)
     plt.plot(CH_L.spikes[0], np.ones(len(CH_L.spikes[0])), 'o', markersize=3)
     plt.plot(CH_L.record_t, CH_L.record_v[0])
+    plt.plot(CH_L.record_t, CH_L.record_v[1])
 
     plt.subplot(714)
     plt.plot(CH_R.spikes[0], np.ones(len(CH_R.spikes[0])), 'o', markersize=3)
     plt.plot(CH_R.record_t, CH_R.record_v[0])
+    plt.plot(CH_R.record_t, CH_R.record_v[1])
 
     plt.subplot(715)
     plt.plot(RS.spikes[0], np.ones(len(RS.spikes[0])), 'o', markersize=3)
     plt.plot(RS.record_t, RS.record_v[0])
+    plt.plot(RS.record_t, RS.record_v[1])
 
     #plt.plot(RS.record_t, RS.record_v, label='v')
     #plt.plot(CH_L.record_t, CH_L.record_v, label='n1')
