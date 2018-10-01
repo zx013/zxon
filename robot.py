@@ -29,6 +29,8 @@ class Izhikevich:
         self.spike_type = spike_type
         self.a, self.b, self.c, self.d = self.params[spike_type]
 
+        self.I_ext = np.zeros(self.num) #外部电流
+        self.I_noise = np.zeros(self.num) #噪音
         self.reset()
 
     def reset(self):
@@ -36,8 +38,6 @@ class Izhikevich:
         self.u = np.ones(self.num) * self.b * self.v
         self.I = np.zeros(self.num) #内部电流
         self.g = np.zeros(self.num)
-        self.I_ext = np.zeros(self.num) #外部电流
-        self.I_noise = np.zeros(self.num) #噪音
 
         self.lastspike = np.zeros(self.num)
         self.spikes = []
@@ -98,7 +98,7 @@ class Izhikevich:
 
 
 class STDP:
-    def __init__(self, izh_pre, izh_post, num=100, rate=0, learning=False, part=False, depress=False, condition='1', w=None, r=0):
+    def __init__(self, izh_pre, izh_post, num=100, rate=0, learning=False, part=False, depress=False, condition='1', w=None, r=0.1):
         self.izh_pre = izh_pre
         self.izh_post = izh_post #突触连接到的神经元
         self.num = num #突触连接数量，默认100
@@ -233,22 +233,30 @@ class Robot:
         self.minimun = -1000
         self.trace = np.zeros(1) #第一个为数量
         self.trace = np.append(self.trace, self.location)
+        self.dopamine = 0
 
 
     #向左或向右移动若干距离，右移时为1，左移时为-1
     def move(self, side=1, length=100):
-        before = self.location - self.cue
-        self.location = np.clip(self.location + side * length, self.minimun, self.maximun)
-        after = self.location - self.cue
+        result = 'normal'
+        before = self.location
+        location = self.location + side * length
+        if location <= self.minimun or location >= self.maximun:
+            result = 'depress'
+        self.location = np.clip(location, self.minimun, self.maximun)
+        after = self.location
         self.trace[0] += 1
         self.trace = np.append(self.trace, self.location)
-        return before and before * after <= 0 #穿过或者到达了线索
+        if before and before * after <= 0: #穿过或者到达了线索
+            result = 'enhance'
+        return result
 
     def sense(self):
         input = self.network.input[0]
-        input.I_ext *= 0
+        input.I_ext *= 0.8
         step = (self.maximun - self.minimun) / self.num
-        index = np.clip(int((self.location - self.minimun) / step), 0, self.num - 1)
+        #机械臂和摄像头绑定
+        index = np.clip(int((self.location - self.cue - self.minimun) / step), 0, self.num - 1)
         input.I_ext[index] = 10
 
     def run(self, during=1000, rate=0):
@@ -287,42 +295,22 @@ class Robot:
         print('start learn')
         side = -1 if left_spikes > right_spikes else 1
         length = (left_spikes + right_spikes) * 4
-        rate = self.rate if self.move(side, length) else 0
+        result = self.move(side, length)
+        if result == 'enhance':
+            self.dopamine = self.rate
+        elif result == 'depress':
+            self.dopamine = - self.rate
+        else:
+            self.dopamine = 0
 
-        self.run(2000, rate)
+        self.run(2000, self.dopamine)
         self.save()
 
         print('reset circuit ')
         self.network.reset() #重置神经元状态
 
-    def plot(self, index=0, test=False, rand=0.5):
-        if test:
-            location = -300
-            x = []
-            y = []
-            for i in range(1000):
-                side = -1 if np.random.random() < rand else 1
-                location = np.clip(location + side * 100, self.minimun, self.maximun)
-                x.append(i)
-                y.append(location)
-        else:
-            trace = np.load('save-{}/trace.npy'.format(index))
-            x = np.arange(trace[0])
-            y = trace[2:]
-        n_old = y[1]
-        s = [0, 0]
-        index = 0
-        for n in y:
-            if n_old != n:
-                index = 0 if n_old > n else 1
-            s[index] += 1
-            n_old = n
-        print(s)
-
-        plt.figure(figsize=(12, 6))
-        plt.plot(x, y)
-        plt.xlabel('Time')
-        plt.ylabel('Position')
+    def cue_move(self, side, length):
+        pass
 
     @property
     def save_dir(self):
@@ -348,14 +336,9 @@ class Robot:
 实现幅度控制的几种方案
 感知距离信息，根据距离信息设置抑制效果
 感知移动幅度，经过奖励后降低移动幅度
-记忆之前的若干次移动，达到奖励后对之前若干次的移动都进行奖励训练（移动后之前的输入电流不会立即消失，而是逐步的降低，保证有脉冲发放，但发放频率降低，这种方案似乎可以实现同时训练多个连接突触的效果，但是之前的反向移动同样会被作为正向移动而训练）
+记忆之前的若干次移动，达到奖励后对之前若干次的移动都进行奖励训练（类似视觉残留的效果，移动后之前的输入电流不会立即消失，而是逐步的降低，保证有脉冲发放，但发放频率降低，这种方案似乎可以实现同时训练多个连接突触的效果，但是之前的反向移动同样会被作为正向移动而训练）
 '''
-if __name__ == '__main__':
-    index = 8
-    rate = 0.0005
-    input_numer = 2
-    decision_number = 1
-
+def test(index=1, rate=0.00025, input_numer=2, decision_number=1):
     network = Network()
     Input_RS = Izhikevich('RS', input_numer)
     CH_L = Izhikevich('CH', decision_number, noise=True)
@@ -364,9 +347,15 @@ if __name__ == '__main__':
     LTS_R = Izhikevich('LTS', decision_number)
     Output_RS_L = Izhikevich('RS')
     Output_RS_R = Izhikevich('RS')
+    #抑制层，用来控制幅度输出幅度大小
+    Depress_LTS_L1 = Izhikevich('LTS')
+    Depress_LTS_L2 = Izhikevich('LTS')
+    Depress_LTS_R1 = Izhikevich('LTS')
+    Depress_LTS_R2 = Izhikevich('LTS')
     network.add([Input_RS], 'input')
     network.add([CH_L, CH_R, LTS_L, LTS_R])
     network.add([Output_RS_L, Output_RS_R], 'output')
+    network.add([Depress_LTS_L1, Depress_LTS_L2, Depress_LTS_R1, Depress_LTS_R2])
 
     #如果两侧权值都是全部随机，容易陷入单向的移动
     IR_CL = STDP(Input_RS, CH_L, learning=True)
@@ -380,6 +369,18 @@ if __name__ == '__main__':
     CL_OL = STDP(CH_L, Output_RS_L, w=1)
     CR_OR = STDP(CH_R, Output_RS_R, w=1)
     network.add([IR_CL, IR_CR, CL_LR, CR_LL, CL_LL, CR_LR, LL_CL, LR_CR, CL_OL, CR_OR])
+    
+    IR_DL1 = STDP(Input_RS, Depress_LTS_L1, learning=True)
+    IR_DR1 = STDP(Input_RS, Depress_LTS_R1, learning=True, w=IR_DL1.w)
+    DL1_DL2 = STDP(Depress_LTS_L1, Depress_LTS_L2)
+    DR1_DR2 = STDP(Depress_LTS_R1, Depress_LTS_R2, w=DL1_DL2.w)
+    DL2_OL = STDP(Depress_LTS_L2, Output_RS_L)
+    DR2_OR = STDP(Depress_LTS_R2, Output_RS_R, w=DL2_OL.w)
+    OL_DL1 = STDP(Output_RS_L, Depress_LTS_L1)
+    OR_DR1 = STDP(Output_RS_R, Depress_LTS_R1, w=OL_DL1.w)
+    OL_DL2 = STDP(Output_RS_L, Depress_LTS_L2)
+    OR_DR2 = STDP(Output_RS_R, Depress_LTS_R2, w=OL_DL2.w)
+    network.add([IR_DL1, IR_DR1, DL1_DL2, DR1_DR2, DL2_OL, DR2_OR, OL_DL1, OR_DR1, OL_DL2, OR_DR2])
 
     robot = Robot(input_numer, network, index=index, rate=rate)
     if os.path.exists('save-{}/stdp-0.npy'.format(index)):
@@ -392,9 +393,15 @@ if __name__ == '__main__':
         print(robot.trace[0], robot.location)
 
     '''
-    Input_RS.I_ext[0] = 10
-    network.run(2000)
+    #最低是4，再低就不能正常显示，可能是解微分方程的误差导致
+    Input_RS.I_ext[0] = 4
+    network.run(500)
 
+    plt.figure(figsize=(12, 7))
+    plt.plot(Input_RS.record_t, Input_RS.record_v[0])
+    '''
+
+    '''
     plt.figure(figsize=(12, 2 * 7))
 
     Input_RS.plot(711)
@@ -405,3 +412,63 @@ if __name__ == '__main__':
     Output_RS_L.plot(716)
     Output_RS_R.plot(717)
     '''
+
+def plot(index=0, test=False, rand=0.5):
+    if test:
+        location = -300
+        x = []
+        y = []
+        for i in range(1000):
+            side = -1 if np.random.random() < rand else 1
+            location = np.clip(location + side * 100, -1000, 1000)
+            x.append(i)
+            y.append(location)
+    else:
+        trace = np.load('save-{}/trace.npy'.format(index))
+        x = np.arange(trace[0])
+        y = trace[2:]
+    n_old = y[1]
+    s = [0, 0]
+    index = 0
+    for n in y:
+        if n_old != n:
+            index = 0 if n_old > n else 1
+        s[index] += 1
+        n_old = n
+    print(s)
+
+    plt.figure(figsize=(12, 6))
+    plt.plot(x, y)
+    plt.xlabel('Time')
+    plt.ylabel('Position')
+
+def printw():
+    for i in range(8):
+        print('index:', i + 1)
+        for j in range(2):
+            print(np.mean(np.load('save-{}/stdp-{}.npy'.format(i + 1, j)), axis=1))
+        print()
+
+
+from multiprocessing import Process
+
+global pool
+if 'pool' not in dir():
+    pool = []
+
+def cancel():
+    for p in pool:
+        p.terminate()
+        p.join()
+
+if __name__ == '__main__':
+    test(1, 0, 9)
+    raise
+
+    index = 0
+    num = 4
+    for i in range(num):
+        p = Process(target=test, args=(i + index * num + 1, 0.0005, 9))
+        p.start()
+        pool.append(p)
+
