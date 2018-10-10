@@ -5,6 +5,7 @@ Created on Wed Sep 26 13:24:31 2018
 @author: zx013
 """
 import os
+import itertools
 import numpy as np
 import matplotlib.pyplot as plt
 from numba.cuda import autojit
@@ -222,48 +223,117 @@ class Network:
             if isinstance(izh, STDP):
                 izh.reset()
 
+    def build(self, input_numer, decision_number, testw):
+        Input_RS = Izhikevich('RS', input_numer)
+        CH_L = Izhikevich('CH', decision_number, noise=True)
+        CH_R = Izhikevich('CH', decision_number, noise=True)
+        LTS_L = Izhikevich('LTS', decision_number)
+        LTS_R = Izhikevich('LTS', decision_number)
+        Output_RS_L = Izhikevich('RS')
+        Output_RS_R = Izhikevich('RS')
+        #抑制层，用来控制幅度输出幅度大小
+        Depress_LTS_1 = Izhikevich('LTS')
+        Depress_LTS_2 = Izhikevich('LTS')
+        self.add([Input_RS], 'input')
+        self.add([CH_L, CH_R, LTS_L, LTS_R])
+        self.add([Output_RS_L, Output_RS_R], 'output')
+        self.add([Depress_LTS_1, Depress_LTS_2])
+
+        #如果两侧权值都是全部随机，容易陷入单向的移动
+        IR_CL = STDP(Input_RS, CH_L, learning=True, w=testw)
+        IR_CR = STDP(Input_RS, CH_R, learning=True, w=IR_CL.w)
+        CL_LR = STDP(CH_L, LTS_R, part=True)
+        CR_LL = STDP(CH_R, LTS_L, part=True, w=CL_LR.w)
+        CL_LL = STDP(CH_L, LTS_L, part=True, condition='i!=j')
+        CR_LR = STDP(CH_R, LTS_R, part=True, condition='i!=j', w=CL_LL.w)
+        LL_CL = STDP(LTS_L, CH_L, depress=True, condition='i==j')
+        LR_CR = STDP(LTS_R, CH_R, depress=True, condition='i==j', w=LL_CL.w)
+        CL_OL = STDP(CH_L, Output_RS_L, w=1)
+        CR_OR = STDP(CH_R, Output_RS_R, w=1)
+        self.add([IR_CL, IR_CR, CL_LR, CR_LL, CL_LL, CR_LR, LL_CL, LR_CR, CL_OL, CR_OR])
+
+        #如果能保证输出频率，那么这种方式是有效的
+        #目前的参数能够在训练权值为0.3时，移动距离为0
+        '''
+        CL_D1 = STDP(CH_L, Depress_LTS_1, w=0.1)
+        CR_D1 = STDP(CH_R, Depress_LTS_1, w=CL_D1.w)
+        D1_D2 = STDP(Depress_LTS_1, Depress_LTS_2, depress=True)
+        D2_OL = STDP(Depress_LTS_2, Output_RS_L, depress=True)
+        D2_OR = STDP(Depress_LTS_2, Output_RS_R, depress=True, w=D2_OL.w)
+        OL_D2 = STDP(Input_RS, Depress_LTS_2, w=0.4)
+        OR_D2 = STDP(Input_RS, Depress_LTS_2, w=OL_D2.w)
+        self.add([CL_D1, CR_D1, D1_D2, D2_OL, D2_OR, OL_D2, OR_D2])
+        '''
+
+        self.Input_RS = Input_RS
+        self.Depress_LTS_1 = Depress_LTS_1
+        self.Depress_LTS_2 = Depress_LTS_2
+        self.CH_L = CH_L
+        self.CH_R = CH_R
+        self.Output_RS_L = Output_RS_L
+        self.Output_RS_R = Output_RS_R
+
+    def show(self):
+        plt.figure(figsize=(12, 2 * 7))
+
+        self.Input_RS.plot(711)
+        self.Depress_LTS_1.plot(712)
+        self.Depress_LTS_2.plot(713)
+
+        self.CH_L.plot(714)
+        self.CH_R.plot(715)
+        #LTS_L.plot(714)
+        #LTS_R.plot(715)
+        self.Output_RS_L.plot(716)
+        self.Output_RS_R.plot(717)
+
 
 class Robot:
-    def __init__(self, num, network, index, rate):
-        self.num = num #神经元数量
-        self.network = network #决策网络
+    def __init__(self, group, input_numer, decision_number, testw, index, rate):
+        self.network = Network() #决策网络
+        self.network.build(input_numer, decision_number, testw)
+
+        self.group = group
+        self.num = input_numer #神经元数量
         self.rate = rate #训练速率
         self.index = index #存储序号
 
-        self.location = -300 #线索的初始坐标
+        self.location = 0 #线索的初始坐标
         self.cue = 0
         self.maximun = 1000 #机械臂最大偏移，右边为正
         self.minimun = -1000
         self.trace = np.zeros(1) #第一个为数量
         self.trace = np.append(self.trace, self.location)
-        self.dopamine = 0
 
 
     #向左或向右移动若干距离，右移时为1，左移时为-1
     def move(self, side=1, length=100):
         result = 'normal'
-        before = self.location
+        location = self.location
+        before = location
         location = self.location + side * length
         if location <= self.minimun or location >= self.maximun:
             result = 'depress'
         location = np.clip(location, self.minimun, self.maximun)
-        after = self.location
+        after = location
         self.trace[0] += 1
-        self.trace = np.append(self.trace, self.location)
+        self.trace = np.append(self.trace, location)
         if before and before * after <= 0: #穿过或者到达了线索
             result = 'enhance'
         return result, location
 
     def sense(self, init=False):
         input = self.network.input[0]
-        input.I_ext *= 0.75
+        input.I_ext *= 0
+        input.I_ext = np.around(input.I_ext, 2)
         step = (self.maximun - self.minimun) / self.num
         #机械臂和摄像头绑定
         index = np.clip(int((self.location - self.cue - self.minimun) / step), 0, self.num - 1)
-        if init:
-            input.I_ext[index] = 20
-        else:
-            input.I_ext[index] += 5 #视觉残留
+        #if init:
+        #    input.I_ext[index] = 50
+        #else:
+        #    input.I_ext[index] += 10 #视觉残留
+        input.I_ext[index] = 10
 
     def run(self, during=1, rate=0):
         for stdp in self.network.stdp:
@@ -289,7 +359,7 @@ class Robot:
     #进行2s的训练
     #机械臂移动
     def next(self, test=False):
-        self.sense(init=True)
+        self.sense()
         print('make decision')
         for i in range(10):
             left_spikes, right_spikes = self.run(1)
@@ -298,33 +368,34 @@ class Robot:
             break
         else:
             print('can not make decision')
+            self.move(1, 0)
             if not test:
                 self.network.reset()
-            return
+            return 0
 
         print('start learn')
         side = -1 if left_spikes > right_spikes else 1
-        length = (left_spikes + right_spikes) * 2
+        #length = (left_spikes + right_spikes) * 2
+        length = 100
 
         result, location = self.move(side, length)
         if result == 'enhance':
-            self.dopamine = self.rate
+            dopamine = self.rate
         elif result == 'depress':
-            self.dopamine = - self.rate
+            dopamine = - self.rate
         else:
-            self.dopamine = 0
+            dopamine = 0
 
-        left_spikes, right_spikes = self.run(2, self.dopamine)
+        left_spikes, right_spikes = self.run(2, dopamine)
         self.location = location
         if not test:
             self.save()
-
             print('reset circuit ')
             self.network.reset() #重置神经元状态
         return left_spikes + right_spikes
 
-    def cue_move(self, side, length):
-        pass
+    def cue_move(self, cue):
+        self.cue = np.clip(cue, self.minimun, self.maximun)
 
     @property
     def save_dir(self):
@@ -335,16 +406,21 @@ class Robot:
             os.mkdir(self.save_dir)
         stdp_list = [stdp for stdp in self.network.network if isinstance(stdp, STDP)]
         for num, stdp in enumerate(stdp_list):
-            np.save('{}/stdp-{}.npy'.format(self.save_dir, num), stdp.w)
-        np.save('{}/trace.npy'.format(self.save_dir), self.trace)
+            np.save('{}/stdp-{}-{}.npy'.format(self.save_dir, self.group, num), stdp.w)
+        np.save('{}/trace-{}.npy'.format(self.save_dir, self.group), self.trace)
 
     def load(self):
         stdp_list = [stdp for stdp in self.network.network if isinstance(stdp, STDP)]
         for num, stdp in enumerate(stdp_list):
-            stdp.w = np.load('{}/stdp-{}.npy'.format(self.save_dir, num))
-        self.trace = np.load('{}/trace.npy'.format(self.save_dir))
-        self.location = self.trace[-1]
+            stdp.w = np.load('{}/stdp-{}-{}.npy'.format(self.save_dir, self.group, num))
+        try:
+            self.trace = np.load('{}/trace-{}.npy'.format(self.save_dir, self.group))
+            self.location = self.trace[-1]
+        except Exception as ex:
+            pass
 
+    def show(self):
+        self.network.show()
 
 '''
 实现幅度控制的几种方案
@@ -352,86 +428,41 @@ class Robot:
 感知移动幅度，经过奖励后降低移动幅度
 记忆之前的若干次移动，达到奖励后对之前若干次的移动都进行奖励训练（类似视觉残留的效果，移动后之前的输入电流不会立即消失，而是逐步的降低，保证有脉冲发放，但发放频率降低，这种方案似乎可以实现同时训练多个连接突触的效果，但是之前的反向移动同样会被作为正向移动而训练）
 '''
-def test(index=1, rate=0.00025, input_numer=2, decision_number=1, circle=500, test=False, testw=0.3):
-    network = Network()
-    Input_RS = Izhikevich('RS', input_numer)
-    CH_L = Izhikevich('CH', decision_number, noise=True)
-    CH_R = Izhikevich('CH', decision_number, noise=True)
-    LTS_L = Izhikevich('LTS', decision_number)
-    LTS_R = Izhikevich('LTS', decision_number)
-    Output_RS_L = Izhikevich('RS')
-    Output_RS_R = Izhikevich('RS')
-    #抑制层，用来控制幅度输出幅度大小
-    Depress_LTS_1 = Izhikevich('LTS')
-    Depress_LTS_2 = Izhikevich('LTS')
-    network.add([Input_RS], 'input')
-    network.add([CH_L, CH_R, LTS_L, LTS_R])
-    network.add([Output_RS_L, Output_RS_R], 'output')
-    network.add([Depress_LTS_1, Depress_LTS_2])
-
-    #如果两侧权值都是全部随机，容易陷入单向的移动
-    IR_CL = STDP(Input_RS, CH_L, learning=True, w=testw)
-    IR_CR = STDP(Input_RS, CH_R, learning=True, w=IR_CL.w)
-    CL_LR = STDP(CH_L, LTS_R, part=True)
-    CR_LL = STDP(CH_R, LTS_L, part=True, w=CL_LR.w)
-    CL_LL = STDP(CH_L, LTS_L, part=True, condition='i!=j')
-    CR_LR = STDP(CH_R, LTS_R, part=True, condition='i!=j', w=CL_LL.w)
-    LL_CL = STDP(LTS_L, CH_L, depress=True, condition='i==j')
-    LR_CR = STDP(LTS_R, CH_R, depress=True, condition='i==j', w=LL_CL.w)
-    CL_OL = STDP(CH_L, Output_RS_L, w=1)
-    CR_OR = STDP(CH_R, Output_RS_R, w=1)
-    network.add([IR_CL, IR_CR, CL_LR, CR_LL, CL_LL, CR_LR, LL_CL, LR_CR, CL_OL, CR_OR])
-
-    #如果能保证输出频率，那么这种方式是有效的
-    #目前的参数能够在训练权值为0.3时，移动距离为0
-    CL_D1 = STDP(CH_L, Depress_LTS_1, w=0.1)
-    CR_D1 = STDP(CH_R, Depress_LTS_1, w=CL_D1.w)
-    D1_D2 = STDP(Depress_LTS_1, Depress_LTS_2, depress=True)
-    D2_OL = STDP(Depress_LTS_2, Output_RS_L, depress=True)
-    D2_OR = STDP(Depress_LTS_2, Output_RS_R, depress=True, w=D2_OL.w)
-    OL_D2 = STDP(Input_RS, Depress_LTS_2, w=0.4)
-    OR_D2 = STDP(Input_RS, Depress_LTS_2, w=OL_D2.w)
-    network.add([CL_D1, CR_D1, D1_D2, D2_OL, D2_OR, OL_D2, OR_D2])
-
+def test(index=1, group=1, rate=0.00025, input_numer=2, decision_number=1, circle=1000, test=False, testw=0.5):
     if not test:
-        robot = Robot(input_numer, network, index=index, rate=rate)
-        if os.path.exists('save-{}/stdp-0.npy'.format(index)):
-            robot.load()
-        robot.save()
+        robot_group = []
+        for i in range(group):
+            robot = Robot(i, input_numer, decision_number, testw, index=index, rate=rate)
+            robot_group.append(robot)
 
-        print(robot.trace[0], robot.location)
+            if os.path.exists('save-{}/stdp-{}-0.npy'.format(index, i)):
+                robot.load()
+            robot.save()
+
+            print(i, robot.trace[0], robot.location)
+
+        #cue = itertools.cycle(range(-800, 801, 200))
+        cue = itertools.cycle(zip(list(range(-800, 801, 200)) + list(range(800, -801, -200)), list(range(-800, 801, 200)) + list(range(-800, 801, 200))))
         while robot.trace[0] < circle:
-            robot.next()
-            print(robot.trace[0], robot.location)
+            if robot.trace[0] % 20 == 0:
+                c = cue.__next__()
+                print('cue is {}'.format(c))
+            for i in range(group):
+                robot = robot_group[i]
+                if robot.trace[0] % 20 == 0:
+                    robot.cue_move(c[i])
 
+                robot.next()
+                print(index, robot.trace[0], robot.location)
     else:
         '''
         #最低是4，再低就不能正常显示，可能是解微分方程的误差导致
-        Input_RS.I_ext[0] = 4
-        network.run(500)
-
-        plt.figure(figsize=(12, 7))
-        plt.plot(Input_RS.record_t, Input_RS.record_v[0])
         '''
-        robot = Robot(input_numer, network, index=index, rate=rate)
         robot.next(test=True)
-        #network.run(2000)
-        #print(Output_RS_L.spikes_num, Output_RS_R.spikes_num)
-        plt.figure(figsize=(12, 2 * 7))
-
-        Input_RS.plot(711)
-        Depress_LTS_1.plot(712)
-        Depress_LTS_2.plot(713)
-
-        CH_L.plot(714)
-        CH_R.plot(715)
-        #LTS_L.plot(714)
-        #LTS_R.plot(715)
-        Output_RS_L.plot(716)
-        Output_RS_R.plot(717)
+        robot.show()
 
 
-def plot(index=0, test=False, rand=0.5):
+def plot(index=0, group=0, test=False, rand=0.5):
     if test:
         location = -300
         x = []
@@ -442,7 +473,7 @@ def plot(index=0, test=False, rand=0.5):
             x.append(i)
             y.append(location)
     else:
-        trace = np.load('save-{}/trace.npy'.format(index))
+        trace = np.load('save-{}/trace-{}.npy'.format(index, group))
         x = np.arange(trace[0])
         y = trace[2:]
     n_old = y[1]
@@ -460,11 +491,28 @@ def plot(index=0, test=False, rand=0.5):
     plt.xlabel('Time')
     plt.ylabel('Position')
 
-def printw():
+def plot2d(index=1):
+    x = np.load('save-{}/trace-{}.npy'.format(index, 0))[2:]
+    y = np.load('save-{}/trace-{}.npy'.format(index, 1))[2:]
+    cue = itertools.cycle(zip(list(range(-800, 801, 200)) + list(range(800, -801, -200)), list(range(-800, 801, 200)) + list(range(-800, 801, 200))))
+    cue_x = []
+    cue_y = []
+    for i in range(x.size):
+        c = cue.__next__()
+        cue_x.append(c[0])
+        cue_y.append(c[1])
+
+    plt.figure(figsize=(12, 12))
+    plt.plot(x, y)
+    plt.plot(cue_x, cue_y)
+    plt.xlabel('x')
+    plt.ylabel('y')
+
+def printw(group=0):
     for i in range(8):
         print('index:', i + 1)
         for j in range(2):
-            print(np.mean(np.load('save-{}/stdp-{}.npy'.format(i + 1, j)), axis=1))
+            print(np.mean(np.load('save-{}/stdp-{}-{}.npy'.format(i + 1, group, j)), axis=1))
         print()
 
 
@@ -481,36 +529,40 @@ def cancel():
 
 def testtime(ranget=1, testw=0.4):
     result = []
-    for i in range(ranget):
-        try:
-            result.append(test(input_numer=9, test=True, testw=testw))
-        except Exception as ex:
-            print(ex)
-    t = [v for v in result if v is not None]
-    print(len([v for v in result if v is None]), sum(t) / len(t))
+    try:
+        for i in range(ranget):
+            try:
+                result.append(test(input_numer=2, test=True, testw=testw))
+            except Exception as ex:
+                print(ex)
+        t = [v for v in result if v is not None]
+        print(testw, len([v for v in result if v is None]), sum(t) / len(t))
+    except Exception as ex:
+        print(ex)
+    return result
+
 '''
-权值 失败 发放频率
-0.30   8  44.358870967741936
-0.35   6  51.92857142857143
-0.40  11  58.611729019211324
-0.45  14  62.34178498985801
-0.50  34  65.95031055900621
-0.55  38  69.47401247401247
-0.60  74  77.07883369330453
-0.65  95  86.51160220994475
-0.70 134  96.1905311778291
-0.75 125 105.656
+权值 失败 发放速率
+0.30   4   4.62
+0.35   2  10.96
+0.40   0  27.63
+0.45   9  44.18
+0.50  38  45.56
+0.55  90  47.45
+0.60 128  70.44
+0.65 132 100.86
+0.70 153 122.78
+0.75 154 138.45
 '''
 if __name__ == '__main__':
-    #test(1, 0.0005, 9)
-    #test(input_numer=9, test=True, testw=0.5)
-    testtime(1, 0.4)
+    #result = testtime(1, 0.5)
+    #test(index=5, group=2, rate=0, circle=500)
 
     '''
-    index = 4
-    num = 2
+    index = 0
+    num = 4
     for i in range(num):
-        p = Process(target=test, args=(i + index * num + 1, 0.0005, 9, 1, 1000))
+        p = Process(target=test, args=(i + index * num + 1, 2, 0, 2, 1, 500))
         p.start()
         pool.append(p)
     '''
