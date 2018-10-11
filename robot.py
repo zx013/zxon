@@ -301,26 +301,10 @@ class Robot:
         self.location = 0 #线索的初始坐标
         self.cue = 0
         self.maximun = 1000 #机械臂最大偏移，右边为正
-        self.minimun = -1000
+        self.minimun = - self.maximun
         self.trace = np.zeros(1) #第一个为数量
         self.trace = np.append(self.trace, self.location)
 
-
-    #向左或向右移动若干距离，右移时为1，左移时为-1
-    def move(self, side=1, length=100):
-        result = 'normal'
-        location = self.location
-        before = location
-        location = self.location + side * length
-        if location <= self.minimun or location >= self.maximun:
-            result = 'depress'
-        location = np.clip(location, self.minimun, self.maximun)
-        after = location
-        self.trace[0] += 1
-        self.trace = np.append(self.trace, location)
-        if before and before * after <= 0: #穿过或者到达了线索
-            result = 'enhance'
-        return result, location
 
     def sense(self, init=False):
         input = self.network.input[0]
@@ -329,11 +313,24 @@ class Robot:
         step = (self.maximun - self.minimun) / self.num
         #机械臂和摄像头绑定
         index = np.clip(int((self.location - self.cue - self.minimun) / step), 0, self.num - 1)
-        #if init:
-        #    input.I_ext[index] = 50
-        #else:
-        #    input.I_ext[index] += 10 #视觉残留
         input.I_ext[index] = 10
+
+    #根据当前位置获取多巴胺浓度
+    def dopamine(self, location):
+        if abs(location) < abs(self.location):
+            return self.rate * (1 - abs(location) / self.maximun)
+        elif abs(location) > abs(self.location):
+            return - self.rate * abs(location) / self.maximun
+        else:
+            return 0
+
+    #向左或向右移动若干距离，右移时为1，左移时为-1
+    def move(self, side=1, length=100):
+        location = np.clip(self.location + side * length, self.minimun, self.maximun)
+        dopamine = self.dopamine(location)
+        self.trace[0] += 1
+        self.trace = np.append(self.trace, location)
+        return dopamine, location
 
     def run(self, during=1, rate=0):
         for stdp in self.network.stdp:
@@ -349,7 +346,7 @@ class Robot:
 
         left_spikes = left.spikes_num[0] - left_spikes
         right_spikes = right.spikes_num[0] - right_spikes
-        print('run {}ms by rate {}, input {}, output {} {}'.format(during, rate, self.network.input[0].I_ext, left_spikes, right_spikes))
+        print('run {}ms by rate {}, input {}, output {} {}'.format(during, self.dopamine(self.location), self.network.input[0].I_ext, left_spikes, right_spikes))
         return left_spikes, right_spikes
 
     #机械臂进行移动
@@ -375,16 +372,10 @@ class Robot:
 
         print('start learn')
         side = -1 if left_spikes > right_spikes else 1
-        #length = (left_spikes + right_spikes) * 2
+        length = (left_spikes + right_spikes) * 4
         length = 100
 
-        result, location = self.move(side, length)
-        if result == 'enhance':
-            dopamine = self.rate
-        elif result == 'depress':
-            dopamine = - self.rate
-        else:
-            dopamine = 0
+        dopamine, location = self.move(side, length)
 
         left_spikes, right_spikes = self.run(2, dopamine)
         self.location = location
@@ -395,7 +386,8 @@ class Robot:
         return left_spikes + right_spikes
 
     def cue_move(self, cue):
-        self.cue = np.clip(cue, self.minimun, self.maximun)
+        print('cue not move')
+        #self.cue = np.clip(cue, self.minimun, self.maximun)
 
     @property
     def save_dir(self):
@@ -453,13 +445,16 @@ def test(index=1, group=1, rate=0.00025, input_numer=2, decision_number=1, circl
                     robot.cue_move(c[i])
 
                 robot.next()
-                print(index, robot.trace[0], robot.location)
+                print(i, robot.trace[0], robot.location)
     else:
         '''
         #最低是4，再低就不能正常显示，可能是解微分方程的误差导致
         '''
+        robot = Robot(0, input_numer, decision_number, testw, index=index, rate=rate)
         robot.next(test=True)
         robot.show()
+
+    return robot
 
 
 def plot(index=0, group=0, test=False, rand=0.5):
@@ -556,13 +551,16 @@ def testtime(ranget=1, testw=0.4):
 '''
 if __name__ == '__main__':
     #result = testtime(1, 0.5)
-    #test(index=5, group=2, rate=0, circle=500)
+    robot = test(index=1, group=1, rate=0.00025, input_numer=9, circle=500, test=True)
 
     '''
-    index = 0
+    index = 1
     num = 4
     for i in range(num):
-        p = Process(target=test, args=(i + index * num + 1, 2, 0, 2, 1, 500))
+        #index=1, group=1, rate=0.00025, input_numer=2, decision_number=1, circle=1000
+        #rate=0.0005, input_numer=9, circle=1000
+        #rate=0.001, input_numer=13, circle=1000
+        p = Process(target=test, args=(i + index * num + 1, 1, 0.001, 13, 1, 1000))
         p.start()
         pool.append(p)
     '''
