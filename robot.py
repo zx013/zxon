@@ -247,16 +247,14 @@ class Network:
 
         #如果能保证输出频率，那么这种方式是有效的
         #目前的参数能够在训练权值为0.3时，移动距离为0
-        '''
         CL_D1 = STDP(CH_L, Depress_LTS_1, w=0.1)
         CR_D1 = STDP(CH_R, Depress_LTS_1, w=CL_D1.w)
         D1_D2 = STDP(Depress_LTS_1, Depress_LTS_2, depress=True)
         D2_OL = STDP(Depress_LTS_2, Output_RS_L, depress=True)
         D2_OR = STDP(Depress_LTS_2, Output_RS_R, depress=True, w=D2_OL.w)
-        OL_D2 = STDP(Input_RS, Depress_LTS_2, w=0.4)
+        OL_D2 = STDP(Input_RS, Depress_LTS_2, w=0.5)
         OR_D2 = STDP(Input_RS, Depress_LTS_2, w=OL_D2.w)
         self.add([CL_D1, CR_D1, D1_D2, D2_OL, D2_OR, OL_D2, OR_D2])
-        '''
 
         self.Input_RS = Input_RS
         self.Depress_LTS_1 = Depress_LTS_1
@@ -310,11 +308,15 @@ class Robot:
 
     #根据当前位置获取多巴胺浓度
     def dopamine(self, location):
-        if abs(location) < abs(self.location):
-            return self.rate * (1 - abs(location) / self.maximun)
-        elif abs(location) > abs(self.location):
+        if location * self.location >= 0: #穿过线索
+            return self.rate
+        if location == self.maximun or location == self.minimun: #边缘
+            return - self.rate
+        if abs(location) < abs(self.location): #靠近线索
+            return 0.5 * self.rate * (1 - abs(location) / self.maximun)
+        elif abs(location) > abs(self.location): #远离线索
             return - self.rate * abs(location) / self.maximun
-        else:
+        else: #决策失败
             return 0
 
     #向左或向右移动若干距离，右移时为1，左移时为-1
@@ -444,7 +446,7 @@ def test(index=1, group=1, rate=0.00025, input_numer=2, decision_number=1, circl
         #最低是4，再低就不能正常显示，可能是解微分方程的误差导致
         '''
         robot = Robot(0, input_numer, decision_number, testw, index=index, rate=rate)
-        robot.next(test=True)
+        return robot.next(test=True)
         robot.show()
 
     return robot
@@ -499,8 +501,15 @@ def plot2d(index=1):
 def printw(group=0):
     for i in range(8):
         print('index:', i + 1)
+        total = None
         for j in range(2):
-            print(np.mean(np.load('save-{}/stdp-{}-{}.npy'.format(i + 1, group, j)), axis=1))
+            _total = np.mean(np.load('save-{}/stdp-{}-{}.npy'.format(i + 1, group, j)), axis=1)
+            print(_total)
+            if total is None:
+                total = _total
+            else:
+                total += _total
+        print(total)
         print()
 
 
@@ -520,7 +529,7 @@ def testtime(ranget=1, testw=0.4):
     try:
         for i in range(ranget):
             try:
-                result.append(test(input_numer=2, test=True, testw=testw))
+                result.append(test(input_numer=9, rate=0, test=True, testw=testw))
             except Exception as ex:
                 print(ex)
         t = [v for v in result if v is not None]
@@ -529,23 +538,37 @@ def testtime(ranget=1, testw=0.4):
         print(ex)
     return result
 
+def printrate():
+    x = np.arange(0.15, 0.85, 0.05)
+    y = np.array([0.00, 0.01, 0.87, 3.26, 5.02, 6.76, 10.32, 15.36, 23.82, 30.89, 33.10, 43.27, 52.45, 63.44])
+    ye = np.exp(x * 5.4) - 1
+    plt.figure(figsize=(6, 6))
+    plt.plot(x, y)
+    plt.plot(x, ye)
+
 '''
 权值 失败 发放速率
-0.30   4   4.62
-0.35   2  10.96
-0.40   0  27.63
-0.45   9  44.18
-0.50  38  45.56
-0.55  90  47.45
-0.60 128  70.44
-0.65 132 100.86
-0.70 153 122.78
-0.75 154 138.45
+0.15    0    0.00
+0.20    0    0.01
+0.25    0    0.87
+0.30    0    3.26
+0.35    0    5.02
+0.40    0    6.76
+0.45    0   10.32
+0.50    0   15.36
+0.55    0   23.82
+0.60    0   30.89
+0.65    0   33.10
+0.70    0   43.27
+0.75    0   52.45
+0.80    0   63.44
 '''
 if __name__ == '__main__':
-    #result = testtime(1, 0.5)
+    printrate()
+    #result = testtime(100, 0.80)
     #robot = test(index=1, group=1, rate=0.00025, input_numer=9, circle=500, test=True)
 
+    '''
     index = 1
     num = 4
     for i in range(num):
@@ -555,3 +578,4 @@ if __name__ == '__main__':
         p = Process(target=test, args=(i + index * num + 1, 1, 0.0005, 9, 1, 500))
         p.start()
         pool.append(p)
+    '''
