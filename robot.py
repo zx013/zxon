@@ -8,13 +8,6 @@ import os
 import itertools
 import numpy as np
 import matplotlib.pyplot as plt
-from numba.cuda import autojit
-
-
-def psp(t):
-    if t < 0:
-        return 0
-    return t / 5 * np.exp(1 - t / 5)
 
 
 class Izhikevich:
@@ -551,16 +544,14 @@ def testtime(ranget=1, testw=0.4):
 '''
 if __name__ == '__main__':
     #result = testtime(1, 0.5)
-    robot = test(index=1, group=1, rate=0.00025, input_numer=9, circle=500, test=True)
+    #robot = test(index=1, group=1, rate=0.00025, input_numer=9, circle=500, test=True)
 
-    '''
     index = 1
     num = 4
     for i in range(num):
         #index=1, group=1, rate=0.00025, input_numer=2, decision_number=1, circle=1000
+        #rate=0.00025, input_numer=9, circle=1000
         #rate=0.0005, input_numer=9, circle=1000
-        #rate=0.001, input_numer=13, circle=1000
-        p = Process(target=test, args=(i + index * num + 1, 1, 0.001, 13, 1, 1000))
+        p = Process(target=test, args=(i + index * num + 1, 1, 0.0005, 9, 1, 500))
         p.start()
         pool.append(p)
-    '''
